@@ -1,0 +1,41 @@
+# Core numerical and data processing
+numpy>=1.26
+pandas>=2.2
+scipy>=1.12
+
+# Computer vision and image processing
+opencv-contrib-python>=4.10
+Pillow>=10.0
+scikit-image>=0.22
+albumentations>=1.4
+
+# Machine learning and CNN
+torch
+torchvision
+scikit-learn>=1.4
+
+# Visualization and experiment monitoring
+matplotlib>=3.8
+seaborn>=0.13
+tensorboard>=2.16
+tqdm>=4.66
+
+# Notebook support
+jupyterlab>=4.0
+ipykernel>=6.29
+
+# Configuration
+PyYAML>=6.0
+
+# Model exporting and deployment
+onnx>=1.16
+onnxruntime>=1.18
+
+# Future Unity/Python integration
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.7
+python-multipart>=0.0.9
+
+# Testing
+pytest>=8.0

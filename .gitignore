@@ -1,0 +1,23 @@
+.venv/
+tmp/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local datasets and generated outputs can become large.
+data/raw/**
+!data/raw/**/
+!data/raw/**/.gitkeep
+data/processed/**
+!data/processed/**/
+!data/processed/**/.gitkeep
+outputs/**
+!outputs/**/
+!outputs/**/.gitkeep
+models/checkpoints/*.pt
+models/exported/*.onnx
+
+# Keep labels and structure markers.
+!.gitkeep
+!data/labels/labels.csv

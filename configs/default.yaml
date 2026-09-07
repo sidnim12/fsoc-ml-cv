@@ -1,0 +1,38 @@
+project:
+  name: fsoc-ml-cv
+  problem_statement_id: PS 26169
+  target_id: Terminal_B
+
+image:
+  width: 640
+  height: 480
+  patch_size: 32
+
+detector:
+  threshold: 220
+  min_area: 2
+  max_area: 600
+  blur_kernel: 5
+  circularity_min: 0.15
+
+classifier:
+  confidence_threshold: 0.55
+  model_path: models/checkpoints/best_classifier.pt
+  onnx_path: models/exported/beacon_classifier.onnx
+
+temporal:
+  enabled: true
+  min_history: 4
+  max_history: 12
+  expected_period_frames: 6
+  tolerance_frames: 2
+
+tracker:
+  dt: 1.0
+  process_noise: 0.03
+  measurement_noise: 4.0
+  max_missed_frames: 8
+
+api:
+  host: 127.0.0.1
+  port: 8000
