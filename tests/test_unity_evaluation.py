@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
-from src.evaluate_unity_sequence import EVALUATION_RESULT_KEYS, calculate_detection_metrics, evaluate_unity_sequence
+from src.evaluate_unity_sequence import EVALUATION_RESULT_KEYS, calculate_detection_metrics, evaluate_unity_sequence, evaluate_unity_sequences
 from src.tracker import TRACKING_OUTPUT_KEYS
 
 
@@ -188,6 +188,30 @@ def test_evaluation_stable_schema_and_outputs(tmp_path: Path) -> None:
     assert (output / "failure_montage.png").exists()
 
 
+def test_evaluation_autodetects_resolution_and_scales_video(tmp_path: Path) -> None:
+    make_sequence(tmp_path)
+    output = tmp_path / "outputs"
+
+    result = evaluate_unity_sequence(
+        sequence_dir=tmp_path / "unity",
+        fps=30,
+        coordinate_origin="top-left",
+        output_dir=output,
+        output_scale=2,
+        pipeline=MockPipeline(),
+        tracker=MockTracker(),
+    )
+
+    assert result["dataset_validation"]["resolution_autodetected"] is True
+    assert result["evaluation_summary"]["resolution"] == "64x48"
+    assert result["evaluation_summary"]["output_video_resolution"] == "128x96"
+
+    video = cv2.VideoCapture(str(output / "annotated_tracking.mp4"))
+    assert video.isOpened()
+    assert int(video.get(cv2.CAP_PROP_FRAME_WIDTH)) == 128
+    assert int(video.get(cv2.CAP_PROP_FRAME_HEIGHT)) == 96
+
+
 def test_ground_truth_metrics_with_known_values(tmp_path: Path) -> None:
     make_sequence(tmp_path)
     result = evaluate_unity_sequence(
@@ -315,6 +339,27 @@ def test_missing_image_detection_in_labels(tmp_path: Path) -> None:
         )
 
 
+def test_out_of_bounds_labels_fail_validation(tmp_path: Path) -> None:
+    sequence = make_sequence(tmp_path)
+    (sequence / "labels.csv").write_text(
+        "frame_id,filename,target_present,cx_px,cy_px\n"
+        "0,frame_000000.png,1,999,20\n"
+        "1,frame_000001.png,1,20,20\n"
+        "2,frame_000002.png,0,,\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="labels failed validation"):
+        evaluate_unity_sequence(
+            sequence_dir=tmp_path / "unity",
+            fps=30,
+            coordinate_origin="top-left",
+            output_dir=tmp_path / "outputs",
+            pipeline=MockPipeline(),
+            tracker=MockTracker(),
+        )
+
+
 def test_calculate_detection_metrics_does_not_use_predictions_as_ground_truth() -> None:
     rows = [
         {
@@ -333,3 +378,33 @@ def test_calculate_detection_metrics_does_not_use_predictions_as_ground_truth() 
 
     assert metrics["available"] is False
     assert metrics["candidate_recall"] is None
+
+
+def test_batch_evaluation_writes_combined_metrics(tmp_path: Path) -> None:
+    make_sequence(tmp_path)
+    second = tmp_path / "unity" / "disturbance01" / "sequence_001"
+    for frame_index in range(3):
+        write_image(second / f"frame_{frame_index:06d}.png", value=30 + frame_index)
+    (second / "labels.csv").write_text(
+        "sequence_id,frame_id,timestamp_s,image_path,scenario,target_present,target_id,target_x,target_y\n"
+        "1,0,0.0000,frame_000000.png,disturbance,1,beacon_001,10,20\n"
+        "1,1,0.0333,frame_000001.png,disturbance,1,beacon_001,20,20\n"
+        "1,2,0.0667,frame_000002.png,disturbance,0,beacon_001,,\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "batch_outputs"
+
+    result = evaluate_unity_sequences(
+        root_dir=tmp_path / "unity",
+        fps=30,
+        coordinate_origin="top-left",
+        output_root=output,
+        pipeline=MockPipeline(),
+        tracker_factory=MockTracker,
+    )
+
+    assert result["summary"]["sequence_count"] == 2
+    assert result["summary"]["successful_sequences"] == 2
+    assert result["summary"]["failed_sequences"] == 0
+    assert (output / "final_metrics.csv").exists()
+    assert (output / "final_summary.json").exists()

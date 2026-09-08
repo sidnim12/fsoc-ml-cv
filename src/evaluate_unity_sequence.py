@@ -25,6 +25,7 @@ try:
         bool_or_none,
         build_and_write_manifest,
         discover_unity_sequence,
+        discover_unity_sequences,
         float_or_none,
         has_ground_truth,
         missing_label_image_references,
@@ -32,6 +33,7 @@ try:
         print_inventory,
         sequence_slug,
         validate_coordinate_origin,
+        validate_unity_labels,
         validate_unity_sequence,
         write_required_labels_template,
     )
@@ -44,6 +46,7 @@ except ImportError:  # pragma: no cover - allows direct script execution
         bool_or_none,
         build_and_write_manifest,
         discover_unity_sequence,
+        discover_unity_sequences,
         float_or_none,
         has_ground_truth,
         missing_label_image_references,
@@ -51,6 +54,7 @@ except ImportError:  # pragma: no cover - allows direct script execution
         print_inventory,
         sequence_slug,
         validate_coordinate_origin,
+        validate_unity_labels,
         validate_unity_sequence,
         write_required_labels_template,
     )
@@ -93,6 +97,24 @@ EVALUATION_RESULT_KEYS = {
     "evaluation_summary",
     "output_dir",
 }
+
+BATCH_METRICS_COLUMNS = [
+    "sequence_dir",
+    "outputs_dir",
+    "status",
+    "image_count",
+    "resolution",
+    "labels_found",
+    "ground_truth_available",
+    "candidate_recall",
+    "accepted_detection_recall",
+    "filtered_mae_px",
+    "locked_frame_percentage",
+    "mean_processing_time_ms",
+    "effective_processing_fps",
+    "most_common_failure_reason",
+    "error",
+]
 
 
 PipelineFactory = Callable[[], object]
@@ -140,6 +162,41 @@ def csv_value(value: object) -> object:
     if value is None:
         return ""
     return value
+
+
+def safe_folder_name(value: str) -> str:
+    """Return a filesystem-friendly lowercase folder name."""
+    cleaned = "".join(char.lower() if char.isalnum() else "_" for char in value.strip())
+    return "_".join(part for part in cleaned.split("_") if part) or "sequence"
+
+
+def resolved_frame_size(inventory: UnitySequenceInventory, expected_width: Optional[int], expected_height: Optional[int]) -> Tuple[int, int]:
+    """Resolve the frame size from CLI expectations or the first readable image."""
+    width = expected_width if expected_width is not None else inventory.width
+    height = expected_height if expected_height is not None else inventory.height
+    if width is None or height is None:
+        raise ValueError("could not infer frame resolution; pass --expected-width and --expected-height")
+    return int(width), int(height)
+
+
+def validate_output_scale(output_scale: int) -> int:
+    """Validate output video scaling."""
+    if output_scale < 1:
+        raise ValueError("output_scale must be a positive integer")
+    return int(output_scale)
+
+
+def scaled_video_frame(overlay: np.ndarray, output_scale: int) -> np.ndarray:
+    """Scale only the annotated video frame, never the source dataset image."""
+    if output_scale == 1:
+        return overlay
+    height, width = overlay.shape[:2]
+    return cv2.resize(overlay, (width * output_scale, height * output_scale), interpolation=cv2.INTER_CUBIC)
+
+
+def batch_output_folder(output_root: Path, inventory: UnitySequenceInventory) -> Path:
+    """Create a stable per-sequence output folder before labels are read."""
+    return output_root / safe_folder_name(sequence_slug(inventory, []))
 
 
 def make_default_pipeline(config_path: str | Path, checkpoint: Optional[str | Path], device: Optional[str]) -> SingleFramePipeline:
@@ -947,10 +1004,11 @@ def evaluate_unity_sequence(
     coordinate_origin: str = "top-left",
     output_dir: str | Path = "outputs/unity-evaluation/smooth_horizontal_01",
     labels_path: Optional[str | Path] = None,
-    expected_count: int = 300,
-    expected_width: int = 640,
-    expected_height: int = 480,
+    expected_count: Optional[int] = None,
+    expected_width: Optional[int] = None,
+    expected_height: Optional[int] = None,
     match_tolerance_px: float = 12.0,
+    output_scale: int = 1,
     device: Optional[str] = None,
     pipeline: Optional[object] = None,
     tracker: Optional[object] = None,
@@ -959,11 +1017,13 @@ def evaluate_unity_sequence(
 ) -> Dict[str, object]:
     """Run offline Unity-sequence evaluation with Phase 6 and Phase 7."""
     validate_coordinate_origin(coordinate_origin)
+    output_scale = validate_output_scale(output_scale)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     inventory = discover_unity_sequence(sequence_dir)
     print_inventory(inventory)
+    frame_width, frame_height = resolved_frame_size(inventory, expected_width, expected_height)
     validation = validate_unity_sequence(inventory, expected_count, expected_width, expected_height)
     chosen_labels_path = Path(labels_path) if labels_path else inventory.labels_path
     labels = []
@@ -972,18 +1032,22 @@ def evaluate_unity_sequence(
             chosen_labels_path,
             inventory.sequence_dir,
             coordinate_origin=coordinate_origin,
-            default_width=expected_width,
-            default_height=expected_height,
+            default_width=frame_width,
+            default_height=frame_height,
             fps=fps,
         )
     missing_references = missing_label_image_references(labels)
+    label_validation = validate_unity_labels(labels, inventory)
     validation["label_image_references_valid"] = not missing_references
     validation["missing_label_image_references"] = missing_references
+    validation["label_validation"] = label_validation
     write_json(output_path / "dataset_validation.json", {"inventory": inventory.to_dict(), "validation": validation})
     if not validation["usable"]:
         raise ValueError(f"Unity sequence failed validation; see {output_path / 'dataset_validation.json'}")
     if missing_references:
         raise ValueError(f"labels reference missing images; see {output_path / 'dataset_validation.json'}")
+    if not label_validation["usable"]:
+        raise ValueError(f"labels failed validation; see {output_path / 'dataset_validation.json'}")
 
     ground_truth_available = has_ground_truth(labels)
     if not ground_truth_available:
@@ -1007,7 +1071,7 @@ def evaluate_unity_sequence(
         str(output_path / "annotated_tracking.mp4"),
         cv2.VideoWriter_fourcc(*"mp4v"),
         float(fps),
-        (expected_width, expected_height),
+        (frame_width * output_scale, frame_height * output_scale),
     )
     if not writer.isOpened():
         raise OSError(f"could not create annotated video in {output_path}")
@@ -1056,7 +1120,7 @@ def evaluate_unity_sequence(
                 filtered_trajectory=filtered_trajectory,
                 ground_truth_trajectory=ground_truth_trajectory,
             )
-            writer.write(overlay)
+            writer.write(scaled_video_frame(overlay, output_scale))
     finally:
         writer.release()
 
@@ -1089,7 +1153,9 @@ def evaluate_unity_sequence(
         "sequence_dir": str(inventory.sequence_dir),
         "image_count": inventory.image_count,
         "image_extension": inventory.image_extension,
-        "resolution": f"{expected_width}x{expected_height}",
+        "resolution": f"{frame_width}x{frame_height}",
+        "output_video_resolution": f"{frame_width * output_scale}x{frame_height * output_scale}",
+        "output_scale": output_scale,
         "labels_found": str(chosen_labels_path) if chosen_labels_path else None,
         "ground_truth_available": ground_truth_available,
         "dataset_usable": bool(validation["usable"]),
@@ -1124,6 +1190,115 @@ def evaluate_unity_sequence(
     return result
 
 
+def summarize_batch_rows(rows: Sequence[Mapping[str, object]]) -> Dict[str, object]:
+    """Summarize a multi-sequence Unity evaluation run."""
+    successful = [row for row in rows if row.get("status") == "ok"]
+    failed = [row for row in rows if row.get("status") != "ok"]
+    return {
+        "sequence_count": len(rows),
+        "successful_sequences": len(successful),
+        "failed_sequences": len(failed),
+        "average_candidate_recall": mean_or_none(numeric_values(row.get("candidate_recall") for row in successful)),
+        "average_accepted_detection_recall": mean_or_none(numeric_values(row.get("accepted_detection_recall") for row in successful)),
+        "average_filtered_mae_px": mean_or_none(numeric_values(row.get("filtered_mae_px") for row in successful)),
+        "average_locked_frame_percentage": mean_or_none(numeric_values(row.get("locked_frame_percentage") for row in successful)),
+        "average_effective_processing_fps": mean_or_none(numeric_values(row.get("effective_processing_fps") for row in successful)),
+        "failed_sequence_dirs": [row.get("sequence_dir") for row in failed],
+    }
+
+
+def evaluate_unity_sequences(
+    root_dir: str | Path = "data/raw/unity",
+    config_path: str | Path = "configs/unity.yaml",
+    checkpoint: Optional[str | Path] = None,
+    fps: float = 30.0,
+    coordinate_origin: str = "top-left",
+    output_root: str | Path = "outputs/unity-evaluation",
+    expected_count: Optional[int] = None,
+    expected_width: Optional[int] = None,
+    expected_height: Optional[int] = None,
+    match_tolerance_px: float = 12.0,
+    output_scale: int = 1,
+    device: Optional[str] = None,
+    pipeline: Optional[object] = None,
+    tracker_factory: Optional[TrackerFactory] = None,
+) -> Dict[str, object]:
+    """Evaluate every Unity image sequence under a root folder."""
+    validate_coordinate_origin(coordinate_origin)
+    output_path = Path(output_root)
+    output_path.mkdir(parents=True, exist_ok=True)
+    inventories = discover_unity_sequences(root_dir)
+    shared_pipeline = pipeline or make_default_pipeline(config_path, checkpoint, device)
+    rows: List[Dict[str, object]] = []
+
+    for inventory in inventories:
+        sequence_output = batch_output_folder(output_path, inventory)
+        try:
+            result = evaluate_unity_sequence(
+                sequence_dir=inventory.sequence_dir,
+                config_path=config_path,
+                checkpoint=checkpoint,
+                fps=fps,
+                coordinate_origin=coordinate_origin,
+                output_dir=sequence_output,
+                labels_path=None,
+                expected_count=expected_count,
+                expected_width=expected_width,
+                expected_height=expected_height,
+                match_tolerance_px=match_tolerance_px,
+                output_scale=output_scale,
+                device=device,
+                pipeline=shared_pipeline,
+                tracker_factory=tracker_factory,
+            )
+            summary = dict(result["evaluation_summary"])
+            summary["status"] = "ok"
+            summary["error"] = ""
+        except Exception as exc:  # pragma: no cover - exercised through CLI/manual use
+            summary = {
+                "sequence_dir": str(inventory.sequence_dir),
+                "outputs_dir": str(sequence_output),
+                "status": "failed",
+                "image_count": inventory.image_count,
+                "resolution": f"{inventory.width}x{inventory.height}",
+                "labels_found": str(inventory.labels_path) if inventory.labels_path else None,
+                "ground_truth_available": None,
+                "candidate_recall": None,
+                "accepted_detection_recall": None,
+                "filtered_mae_px": None,
+                "locked_frame_percentage": None,
+                "mean_processing_time_ms": None,
+                "effective_processing_fps": None,
+                "most_common_failure_reason": None,
+                "error": str(exc),
+            }
+        rows.append({column: summary.get(column, "") for column in BATCH_METRICS_COLUMNS})
+
+    batch_summary = summarize_batch_rows(rows)
+    write_csv(output_path / "final_metrics.csv", rows, BATCH_METRICS_COLUMNS)
+    write_json(
+        output_path / "final_summary.json",
+        {
+            "root_dir": str(root_dir),
+            "output_root": str(output_path),
+            "fps": fps,
+            "coordinate_origin": coordinate_origin,
+            "expected_count": expected_count,
+            "expected_width": expected_width,
+            "expected_height": expected_height,
+            "output_scale": output_scale,
+            "summary": batch_summary,
+            "sequences": rows,
+        },
+    )
+    return {
+        "summary": batch_summary,
+        "rows": rows,
+        "final_metrics_path": str(output_path / "final_metrics.csv"),
+        "final_summary_path": str(output_path / "final_summary.json"),
+    }
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for Unity sequence evaluation."""
     parser = argparse.ArgumentParser(description="Evaluate a Unity FSOC image sequence offline.")
@@ -1134,17 +1309,48 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--fps", type=float, required=True, help="Capture FPS. Use 30 for the current Unity export.")
     parser.add_argument("--coordinate-origin", choices=["top-left", "bottom-left"], required=True)
     parser.add_argument("--output", default="outputs/unity-evaluation/smooth_horizontal_01")
-    parser.add_argument("--expected-count", type=int, default=300)
-    parser.add_argument("--expected-width", type=int, default=640)
-    parser.add_argument("--expected-height", type=int, default=480)
+    parser.add_argument("--expected-count", type=int, default=None, help="Optional expected frame count.")
+    parser.add_argument("--expected-width", type=int, default=None, help="Optional expected width; omitted means auto-detect.")
+    parser.add_argument("--expected-height", type=int, default=None, help="Optional expected height; omitted means auto-detect.")
     parser.add_argument("--match-tolerance", type=float, default=12.0)
+    parser.add_argument("--output-scale", type=int, default=1, help="Scale only the annotated MP4 for easier presentation viewing.")
     parser.add_argument("--device", default=None, help="Optional torch device override, e.g. cpu or cuda.")
+    parser.add_argument("--batch", action="store_true", help="Evaluate every sequence discovered under --sequence-dir.")
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     """Command-line entry point."""
     args = parse_args(argv)
+    if args.batch:
+        if args.labels is not None:
+            raise ValueError("--labels is only supported for single-sequence evaluation")
+        result = evaluate_unity_sequences(
+            root_dir=args.sequence_dir,
+            config_path=args.config,
+            checkpoint=args.checkpoint,
+            fps=args.fps,
+            coordinate_origin=args.coordinate_origin,
+            output_root=args.output,
+            expected_count=args.expected_count,
+            expected_width=args.expected_width,
+            expected_height=args.expected_height,
+            match_tolerance_px=args.match_tolerance,
+            output_scale=args.output_scale,
+            device=args.device,
+        )
+        summary = result["summary"]
+        print("Phase 8 Unity batch evaluation")
+        print(f"  Sequences: {summary['sequence_count']}")
+        print(f"  Successful: {summary['successful_sequences']}")
+        print(f"  Failed: {summary['failed_sequences']}")
+        print(f"  Average candidate recall: {summary['average_candidate_recall']}")
+        print(f"  Average accepted recall: {summary['average_accepted_detection_recall']}")
+        print(f"  Average filtered MAE: {summary['average_filtered_mae_px']}")
+        print(f"  Final metrics: {result['final_metrics_path']}")
+        print(f"  Final summary: {result['final_summary_path']}")
+        return
+
     result = evaluate_unity_sequence(
         sequence_dir=args.sequence_dir,
         config_path=args.config,
@@ -1157,6 +1363,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         expected_width=args.expected_width,
         expected_height=args.expected_height,
         match_tolerance_px=args.match_tolerance,
+        output_scale=args.output_scale,
         device=args.device,
     )
 

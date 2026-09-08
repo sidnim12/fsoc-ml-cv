@@ -12,6 +12,7 @@ from src.unity_dataset_adapter import (
     has_ground_truth,
     missing_label_image_references,
     normalize_labels,
+    validate_unity_labels,
     validate_unity_sequence,
     write_required_labels_template,
 )
@@ -75,6 +76,21 @@ def test_resolution_validation(tmp_path: Path) -> None:
 
     assert validation["all_images_expected_resolution"] is False
     assert validation["resolution_mismatches"][0]["filename"] == "frame_000001.png"
+
+
+def test_resolution_can_be_autodetected(tmp_path: Path) -> None:
+    sequence = tmp_path / "sequence_001"
+    write_image(sequence / "frame_000000.png", width=80, height=50)
+    write_image(sequence / "frame_000001.png", width=80, height=50)
+
+    inventory = discover_unity_sequence(tmp_path)
+    validation = validate_unity_sequence(inventory, expected_count=None, expected_width=None, expected_height=None)
+
+    assert validation["expected_width"] == 80
+    assert validation["expected_height"] == 50
+    assert validation["resolution_autodetected"] is True
+    assert validation["all_images_expected_resolution"] is True
+    assert validation["count_note"] == "count check disabled"
 
 
 def test_csv_label_loading_and_alternative_column_names(tmp_path: Path) -> None:
@@ -184,3 +200,27 @@ def test_prediction_columns_are_not_treated_as_ground_truth(tmp_path: Path) -> N
     assert rows[0]["target_x"] is None
     assert rows[0]["target_y"] is None
     assert has_ground_truth(rows) is False
+
+
+def test_label_validation_rejects_duplicate_missing_and_out_of_bounds_rows(tmp_path: Path) -> None:
+    sequence = tmp_path / "sequence_001"
+    write_image(sequence / "frame_000000.png")
+    write_image(sequence / "frame_000001.png")
+    labels = sequence / "labels.csv"
+    labels.write_text(
+        "frame_id,filename,target_present,cx_px,cy_px\n"
+        "0,frame_000000.png,1,12,30\n"
+        "0,frame_000000.png,1,999,30\n"
+        "3,frame_000003.png,1,12,30\n",
+        encoding="utf-8",
+    )
+    inventory = discover_unity_sequence(tmp_path)
+    rows = normalize_labels(labels, sequence, "top-left", default_width=64, default_height=48)
+
+    validation = validate_unity_labels(rows, inventory)
+
+    assert validation["usable"] is False
+    assert validation["duplicate_label_frame_numbers"] == [0]
+    assert validation["label_rows_for_missing_images"] == [3]
+    assert validation["image_frames_without_labels"] == [1]
+    assert validation["target_coordinates_out_of_bounds"][0]["frame_index"] == 0

@@ -530,6 +530,7 @@ Implemented in:
 ```text
 src/unity_dataset_adapter.py
 src/evaluate_unity_sequence.py
+configs/unity.yaml
 tests/test_unity_dataset_adapter.py
 tests/test_unity_evaluation.py
 ```
@@ -607,6 +608,21 @@ Baseline evaluation command used:
 ```powershell
 .\.venv\Scripts\python.exe src\evaluate_unity_sequence.py --sequence-dir data\raw\unity\smooth_horizontal01\sequence_001 --config configs\default.yaml --checkpoint models\checkpoints\best_classifier.pt --fps 30 --coordinate-origin top-left --output outputs\unity-evaluation\smooth_horizontal_01 --expected-count 300 --expected-width 640 --expected-height 480 --device cpu
 ```
+
+Unity-ready batch command:
+
+```powershell
+.\.venv\Scripts\python.exe src\evaluate_unity_sequence.py --batch --sequence-dir data\raw\unity --config configs\unity.yaml --fps 30 --coordinate-origin top-left --output outputs\unity-evaluation --output-scale 2 --device cpu
+```
+
+This command discovers every sequence under `data/raw/unity`, auto-detects frame resolution, validates labels, evaluates each sequence, and writes combined metrics:
+
+```text
+outputs/unity-evaluation/final_metrics.csv
+outputs/unity-evaluation/final_summary.json
+```
+
+`--output-scale 2` only enlarges the annotated MP4 for easier presentation viewing. It does not resize, overwrite, or relabel the source Unity frames. True higher-quality evaluation still requires Unity to export higher-resolution frames and matching coordinates.
 
 Dataset validation result:
 
@@ -688,6 +704,8 @@ outputs/unity-evaluation/smooth_horizontal_01/confidence_over_time.png
 outputs/unity-evaluation/smooth_horizontal_01/coordinate_error_over_time.png
 outputs/unity-evaluation/smooth_horizontal_01/lock_state_timeline.png
 outputs/unity-evaluation/smooth_horizontal_01/failure_montage.png
+outputs/unity-evaluation/final_metrics.csv
+outputs/unity-evaluation/final_summary.json
 ```
 
 If labels are missing, the same evaluator still runs inference and diagnostics, marks quantitative ground-truth metrics as `null`, and creates:

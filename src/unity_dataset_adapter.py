@@ -318,9 +318,9 @@ def sha256_file(path: Path) -> str:
 
 def validate_unity_sequence(
     inventory: UnitySequenceInventory,
-    expected_count: int = 300,
-    expected_width: int = 640,
-    expected_height: int = 480,
+    expected_count: Optional[int] = 300,
+    expected_width: Optional[int] = 640,
+    expected_height: Optional[int] = 480,
 ) -> Dict[str, object]:
     """Validate image readability, resolution, frame order and duplicate files."""
     unreadable = []
@@ -342,7 +342,9 @@ def validate_unity_sequence(
         height, width = image.shape[:2]
         channels = 1 if image.ndim == 2 else int(image.shape[2])
         channel_counts[channels] = channel_counts.get(channels, 0) + 1
-        if width != expected_width or height != expected_height:
+        target_width = expected_width if expected_width is not None else inventory.width
+        target_height = expected_height if expected_height is not None else inventory.height
+        if target_width is not None and target_height is not None and (width != target_width or height != target_height):
             resolution_mismatches.append({"filename": path.name, "width": int(width), "height": int(height)})
         brightness_values.append(float(np.mean(image)))
         file_hashes.setdefault(sha256_file(path), []).append(path.name)
@@ -351,7 +353,7 @@ def validate_unity_sequence(
     missing = missing_numbers(frame_numbers)
     duplicate_hash_groups = [names for names in file_hashes.values() if len(names) > 1]
     exact_resolution = not resolution_mismatches
-    count_matches = inventory.image_count == expected_count
+    count_matches = True if expected_count is None else inventory.image_count == expected_count
     readable_all = not unreadable
     continuous = bool(frame_numbers) and not duplicates and not missing and len(frame_numbers) == inventory.image_count
     all_empty = not brightness_values or max(brightness_values) <= 1.0
@@ -371,8 +373,9 @@ def validate_unity_sequence(
         "missing_frame_numbers": missing,
         "all_images_readable": readable_all,
         "unreadable_images": unreadable,
-        "expected_width": expected_width,
-        "expected_height": expected_height,
+        "expected_width": expected_width if expected_width is not None else inventory.width,
+        "expected_height": expected_height if expected_height is not None else inventory.height,
+        "resolution_autodetected": expected_width is None or expected_height is None,
         "all_images_expected_resolution": exact_resolution,
         "resolution_mismatches": resolution_mismatches,
         "channel_counts": channel_counts,
@@ -386,7 +389,7 @@ def validate_unity_sequence(
         "unity_editor_ui_suspected": editor_ui_suspected,
         "appears_shuffled": not continuous,
         "usable": bool(inventory.image_count > 0 and readable_all and exact_resolution and not all_empty and not duplicates and not missing),
-        "count_note": "count differs from expected but sequence can still be usable" if not count_matches else "count matches expected",
+        "count_note": "count check disabled" if expected_count is None else "count differs from expected but sequence can still be usable" if not count_matches else "count matches expected",
     }
 
 
@@ -592,6 +595,75 @@ def missing_label_image_references(labels: Sequence[Mapping[str, object]]) -> Li
         if image_path and not Path(str(image_path)).exists():
             missing.append(str(image_path))
     return missing
+
+
+def validate_unity_labels(labels: Sequence[Mapping[str, object]], inventory: UnitySequenceInventory) -> Dict[str, object]:
+    """Validate label rows against discovered image frames and image bounds."""
+    if not labels:
+        return {
+            "labels_available": False,
+            "label_count": 0,
+            "labels_cover_all_frames": False,
+            "duplicate_label_frame_numbers": [],
+            "label_rows_for_missing_images": [],
+            "image_frames_without_labels": [],
+            "visible_rows_missing_coordinates": [],
+            "target_coordinates_out_of_bounds": [],
+            "usable": True,
+        }
+
+    image_frame_numbers = {frame.frame_index for frame in inventory.frames}
+    label_frame_numbers = [int(row["frame_index"]) for row in labels]
+    duplicate_label_frames = duplicate_numbers(label_frame_numbers)
+    label_frames = set(label_frame_numbers)
+    rows_for_missing_images = sorted(number for number in label_frames if number not in image_frame_numbers)
+    image_frames_without_labels = sorted(number for number in image_frame_numbers if number not in label_frames)
+    visible_rows_missing_coordinates = []
+    out_of_bounds = []
+
+    default_width = inventory.width
+    default_height = inventory.height
+    for row in labels:
+        frame_index = int(row["frame_index"])
+        visible = bool_or_none(row.get("target_visible"))
+        target_x = float_or_none(row.get("target_x"))
+        target_y = float_or_none(row.get("target_y"))
+        width = int_or_none(row.get("width")) or default_width
+        height = int_or_none(row.get("height")) or default_height
+
+        if visible is True and (target_x is None or target_y is None):
+            visible_rows_missing_coordinates.append(frame_index)
+            continue
+        if visible is True and target_x is not None and target_y is not None and width is not None and height is not None:
+            if not (0.0 <= target_x < float(width) and 0.0 <= target_y < float(height)):
+                out_of_bounds.append(
+                    {
+                        "frame_index": frame_index,
+                        "target_x": target_x,
+                        "target_y": target_y,
+                        "width": width,
+                        "height": height,
+                    }
+                )
+
+    usable = (
+        not duplicate_label_frames
+        and not rows_for_missing_images
+        and not image_frames_without_labels
+        and not visible_rows_missing_coordinates
+        and not out_of_bounds
+    )
+    return {
+        "labels_available": True,
+        "label_count": len(labels),
+        "labels_cover_all_frames": not image_frames_without_labels,
+        "duplicate_label_frame_numbers": duplicate_label_frames,
+        "label_rows_for_missing_images": rows_for_missing_images,
+        "image_frames_without_labels": image_frames_without_labels,
+        "visible_rows_missing_coordinates": visible_rows_missing_coordinates,
+        "target_coordinates_out_of_bounds": out_of_bounds,
+        "usable": usable,
+    }
 
 
 def scenario_from_inventory(inventory: UnitySequenceInventory, labels: Sequence[Mapping[str, object]]) -> str:
