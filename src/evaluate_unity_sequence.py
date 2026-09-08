@@ -544,6 +544,63 @@ def draw_text(image: np.ndarray, text: str, origin: Tuple[int, int], color: Tupl
     cv2.putText(image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale, color, 1, cv2.LINE_AA)
 
 
+def draw_translucent_panel(
+    image: np.ndarray,
+    top_left: Tuple[int, int],
+    bottom_right: Tuple[int, int],
+    color: Tuple[int, int, int] = (0, 0, 0),
+    alpha: float = 0.68,
+) -> None:
+    """Draw a readable panel without fully hiding the frame."""
+    overlay = image.copy()
+    cv2.rectangle(overlay, top_left, bottom_right, color, -1)
+    cv2.addWeighted(overlay, alpha, image, 1.0 - alpha, 0, image)
+
+
+def point_inside_rect(point: Tuple[float, float], rect: Tuple[int, int, int, int], padding: int = 24) -> bool:
+    """Return whether a point would be covered by a text panel."""
+    x_min, y_min, x_max, y_max = rect
+    return x_min - padding <= point[0] <= x_max + padding and y_min - padding <= point[1] <= y_max + padding
+
+
+def rects_overlap(first: Tuple[int, int, int, int], second: Tuple[int, int, int, int], padding: int = 8) -> bool:
+    """Return whether two overlay panels overlap."""
+    return not (
+        first[2] + padding < second[0]
+        or second[2] + padding < first[0]
+        or first[3] + padding < second[1]
+        or second[3] + padding < first[1]
+    )
+
+
+def choose_panel_rect(
+    image_shape: Tuple[int, ...],
+    avoid_points: Sequence[Tuple[float, float]],
+    panel_size: Tuple[int, int] = (318, 150),
+) -> Tuple[int, int, int, int]:
+    """Choose a corner panel that avoids the target/track points when possible."""
+    height, width = image_shape[:2]
+    panel_width, panel_height = panel_size
+    margin = 8
+    candidates = [
+        (margin, margin, margin + panel_width, margin + panel_height),
+        (width - panel_width - margin, margin, width - margin, margin + panel_height),
+        (margin, height - panel_height - margin, margin + panel_width, height - margin),
+        (width - panel_width - margin, height - panel_height - margin, width - margin, height - margin),
+    ]
+
+    best_rect = candidates[0]
+    best_overlap = None
+    for rect in candidates:
+        overlap_count = sum(1 for point in avoid_points if point_inside_rect(point, rect))
+        if best_overlap is None or overlap_count < best_overlap:
+            best_overlap = overlap_count
+            best_rect = rect
+        if overlap_count == 0:
+            return rect
+    return best_rect
+
+
 def draw_optional_point(image: np.ndarray, x_value: object, y_value: object, color: Tuple[int, int, int], label: str) -> None:
     """Draw a labelled point when coordinates are available."""
     x_number = float_or_none(x_value)
@@ -561,7 +618,9 @@ def draw_unity_evaluation_overlay(
     tracking_result: Mapping[str, object],
     manifest_row: Mapping[str, object],
     total_processing_time_ms: float,
-    trajectory: Sequence[Tuple[float, float]],
+    selected_trajectory: Sequence[Tuple[float, float]],
+    filtered_trajectory: Sequence[Tuple[float, float]],
+    ground_truth_trajectory: Sequence[Tuple[float, float]],
 ) -> np.ndarray:
     """Draw candidate, ground-truth and tracking diagnostics for the output video."""
     overlay = frame.copy()
@@ -572,10 +631,18 @@ def draw_unity_evaluation_overlay(
         if not isinstance(candidate, Mapping):
             continue
         point = (int(round(float(candidate["x_px"]))), int(round(float(candidate["y_px"]))))
-        color = (0, 255, 255)
+        color = (150, 150, 150)
+        radius = 3
+        thickness = 1
         if phase6_result.get("selected_candidate_id") is not None and int(candidate["candidate_id"]) == int(phase6_result["selected_candidate_id"]):
-            color = (0, 165, 255)
-        cv2.circle(overlay, point, 6, color, 1, lineType=cv2.LINE_AA)
+            color = (0, 255, 255)
+            radius = 9
+            thickness = 2
+        cv2.circle(overlay, point, radius, color, thickness, lineType=cv2.LINE_AA)
+
+    draw_polyline(overlay, selected_trajectory, (0, 255, 255), thickness=3)
+    draw_polyline(overlay, filtered_trajectory, (255, 80, 0), thickness=2)
+    draw_polyline(overlay, ground_truth_trajectory, (0, 0, 255), thickness=2)
 
     gt = ground_truth_point(manifest_row)
     if gt is not None:
@@ -587,11 +654,20 @@ def draw_unity_evaluation_overlay(
     draw_optional_point(overlay, tracking_result.get("filtered_x_px"), tracking_result.get("filtered_y_px"), (255, 0, 0), "F")
     draw_optional_point(overlay, tracking_result.get("predicted_x_px"), tracking_result.get("predicted_y_px"), (255, 0, 255), "P")
 
-    if len(trajectory) >= 2:
-        points = np.array([(int(round(x)), int(round(y))) for x, y in trajectory[-80:]], dtype=np.int32)
-        cv2.polylines(overlay, [points], False, (255, 255, 0), 1, lineType=cv2.LINE_AA)
+    avoid_points = []
+    for x_key, y_key in [
+        ("target_x", "target_y"),
+        ("measured_x_px", "measured_y_px"),
+        ("filtered_x_px", "filtered_y_px"),
+        ("predicted_x_px", "predicted_y_px"),
+    ]:
+        x_value = float_or_none(manifest_row.get(x_key, tracking_result.get(x_key)))
+        y_value = float_or_none(manifest_row.get(y_key, tracking_result.get(y_key)))
+        if x_value is not None and y_value is not None:
+            avoid_points.append((x_value, y_value))
 
-    cv2.rectangle(overlay, (6, 6), (320, 154), (0, 0, 0), -1)
+    panel = choose_panel_rect(overlay.shape, avoid_points)
+    draw_translucent_panel(overlay, (panel[0], panel[1]), (panel[2], panel[3]))
     info_lines = [
         f"Frame: {manifest_row.get('frame_index')}",
         f"Candidates: {phase6_result.get('candidate_count')}",
@@ -602,11 +678,77 @@ def draw_unity_evaluation_overlay(
         f"Time: {total_processing_time_ms:.1f} ms",
     ]
     for index, line in enumerate(info_lines):
-        draw_text(overlay, line, (14, 28 + index * 20), (255, 255, 255), scale=0.48)
+        draw_text(overlay, line, (panel[0] + 8, panel[1] + 22 + index * 19), (255, 255, 255), scale=0.46)
 
-    legend = "GT red | M green | F blue | P magenta | C yellow"
-    draw_text(overlay, legend, (14, overlay.shape[0] - 12), (255, 255, 255), scale=0.42)
+    legend_points = avoid_points + list(ground_truth_trajectory[-20:]) + list(filtered_trajectory[-20:]) + list(selected_trajectory[-20:])
+    legend_rect = choose_legend_rect(overlay.shape, legend_points, occupied_rects=[panel])
+    draw_translucent_panel(overlay, (legend_rect[0], legend_rect[1]), (legend_rect[2], legend_rect[3]), alpha=0.68)
+    draw_legend(overlay, legend_rect)
     return overlay
+
+
+def draw_polyline(
+    image: np.ndarray,
+    points: Sequence[Tuple[float, float]],
+    color: Tuple[int, int, int],
+    thickness: int = 2,
+    max_points: int = 90,
+) -> None:
+    """Draw a recent trajectory trail."""
+    if len(points) < 2:
+        return
+    visible = points[-max_points:]
+    array = np.array([(int(round(x)), int(round(y))) for x, y in visible], dtype=np.int32)
+    cv2.polylines(image, [array], False, (0, 0, 0), thickness + 2, lineType=cv2.LINE_AA)
+    cv2.polylines(image, [array], False, color, thickness, lineType=cv2.LINE_AA)
+
+
+def choose_legend_rect(
+    image_shape: Tuple[int, ...],
+    avoid_points: Sequence[Tuple[float, float]],
+    occupied_rects: Sequence[Tuple[int, int, int, int]] = (),
+) -> Tuple[int, int, int, int]:
+    """Place the legend in the clearest corner."""
+    height, width = image_shape[:2]
+    legend_width = 220
+    legend_height = 104
+    margin = 8
+    candidates = [
+        (width - legend_width - margin, margin, width - margin, margin + legend_height),
+        (margin, height - legend_height - margin, margin + legend_width, height - margin),
+        (width - legend_width - margin, height - legend_height - margin, width - margin, height - margin),
+        (margin, margin, margin + legend_width, margin + legend_height),
+    ]
+
+    best_rect = candidates[0]
+    best_score = None
+    for rect in candidates:
+        point_overlap = sum(1 for point in avoid_points if point_inside_rect(point, rect, padding=12))
+        panel_overlap = sum(1 for occupied in occupied_rects if rects_overlap(rect, occupied))
+        score = point_overlap + panel_overlap * 10
+        if best_score is None or score < best_score:
+            best_score = score
+            best_rect = rect
+        if score == 0:
+            return rect
+    return best_rect
+
+
+def draw_legend(image: np.ndarray, rect: Tuple[int, int, int, int]) -> None:
+    """Draw a compact legend for the annotated tracking video."""
+    x_min, y_min, _, _ = rect
+    rows = [
+        ((0, 0, 255), "GT beacon/trail"),
+        ((0, 255, 255), "selected candidate/trail"),
+        ((255, 80, 0), "filtered track"),
+        ((0, 255, 0), "M measured"),
+        ((255, 0, 255), "P predicted"),
+        ((150, 150, 150), "other bright spots"),
+    ]
+    for index, (color, label) in enumerate(rows):
+        y = y_min + 18 + index * 15
+        cv2.line(image, (x_min + 9, y - 4), (x_min + 28, y - 4), color, 2, lineType=cv2.LINE_AA)
+        draw_text(image, label, (x_min + 34, y), (255, 255, 255), scale=0.34)
 
 
 def save_confidence_plot(rows: Sequence[Mapping[str, object]], path: Path) -> None:
@@ -769,7 +911,16 @@ def save_failure_montage(rows: Sequence[Mapping[str, object]], output_path: Path
             "confidence": row.get("phase6_cnn_probability"),
         }
         tracking_result = {key: row.get(key) for key in TRACKING_OUTPUT_KEYS}
-        overlay = draw_unity_evaluation_overlay(frame, phase6_result, tracking_result, row, float(row.get("total_processing_time_ms") or 0.0), [])
+        overlay = draw_unity_evaluation_overlay(
+            frame,
+            phase6_result,
+            tracking_result,
+            row,
+            float(row.get("total_processing_time_ms") or 0.0),
+            selected_trajectory=[],
+            filtered_trajectory=[],
+            ground_truth_trajectory=[],
+        )
         label = f"F{row.get('frame_index')} {row.get('failure_reason')}"
         draw_text(overlay, label, (14, 180), (0, 255, 255), scale=0.46)
         thumbnails.append(cv2.resize(overlay, (320, 240), interpolation=cv2.INTER_AREA))
@@ -862,7 +1013,9 @@ def evaluate_unity_sequence(
         raise OSError(f"could not create annotated video in {output_path}")
 
     prediction_rows: List[Dict[str, object]] = []
-    local_trajectory: List[Tuple[float, float]] = []
+    selected_trajectory: List[Tuple[float, float]] = []
+    filtered_trajectory: List[Tuple[float, float]] = []
+    ground_truth_trajectory: List[Tuple[float, float]] = []
     try:
         for manifest_row in manifest_rows:
             frame = cv2.imread(str(manifest_row["image_path"]), cv2.IMREAD_COLOR)
@@ -882,12 +1035,27 @@ def evaluate_unity_sequence(
             )
             prediction_rows.append(prediction_row)
 
+            measured_x = float_or_none(tracking_result.get("measured_x_px"))
+            measured_y = float_or_none(tracking_result.get("measured_y_px"))
+            if measured_x is not None and measured_y is not None:
+                selected_trajectory.append((measured_x, measured_y))
             filtered_x = float_or_none(tracking_result.get("filtered_x_px"))
             filtered_y = float_or_none(tracking_result.get("filtered_y_px"))
             if filtered_x is not None and filtered_y is not None:
-                local_trajectory.append((filtered_x, filtered_y))
-            trajectory = getattr(tracker, "trajectory", local_trajectory)
-            overlay = draw_unity_evaluation_overlay(frame, phase6_result, tracking_result, manifest_row, total_ms, trajectory)
+                filtered_trajectory.append((filtered_x, filtered_y))
+            gt = ground_truth_point(manifest_row)
+            if gt is not None:
+                ground_truth_trajectory.append(gt)
+            overlay = draw_unity_evaluation_overlay(
+                frame,
+                phase6_result,
+                tracking_result,
+                manifest_row,
+                total_ms,
+                selected_trajectory=selected_trajectory,
+                filtered_trajectory=filtered_trajectory,
+                ground_truth_trajectory=ground_truth_trajectory,
+            )
             writer.write(overlay)
     finally:
         writer.release()

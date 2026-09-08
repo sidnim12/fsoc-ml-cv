@@ -657,6 +657,19 @@ Most common failure: selected_candidate_far_from_ground_truth
 
 The current Python-trained CNN frequently locks onto bright Unity artifacts instead of the labelled beacon. This is useful baseline evidence and should be fixed with detector tuning, better Unity-labelled data, and later fine-tuning. This phase intentionally does not retrain the CNN.
 
+Annotated video legend:
+
+```text
+Red circle/trail: Unity ground-truth beacon
+Yellow circle/trail: selected ML/CV candidate
+Blue trail / F marker: Kalman-filtered track
+Green M marker: measured selected candidate
+Magenta P marker: tracker prediction
+Gray rings: other bright candidates detected by OpenCV
+```
+
+If the yellow selected trail stays near the Earth edge while the red ground-truth trail moves elsewhere, that is not a drawing bug. It shows the current Unity-domain failure: bright scene artifacts are being selected instead of the true beacon.
+
 Phase 8 outputs:
 
 ```text
