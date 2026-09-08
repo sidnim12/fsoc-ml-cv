@@ -41,7 +41,7 @@ The ML/CV layer will eventually return PID-ready data like:
 }
 ```
 
-## Work Completed On September 7, 2026
+## Work Completed So Far
 
 ### Phase 1: Synthetic Dataset Generation
 
@@ -410,6 +410,119 @@ Result:
 10 passed
 ```
 
+### Phase 7: Temporal Verification And Kalman Tracking
+
+Implemented in:
+
+```text
+src/temporal_verifier.py
+src/tracker.py
+tests/test_temporal_verifier.py
+tests/test_tracker.py
+pytest.ini
+```
+
+This phase adds memory across ordered frames. The single-frame pipeline still detects and ranks candidates, while the new tracking layer decides whether the same beacon is persisting over time, predicts where it should appear next, and keeps a lock state for downstream control.
+
+Tracking flow:
+
+```text
+ordered frame sequence
+  -> Phase 6 single-frame candidate ranking
+  -> candidate association near Kalman prediction
+  -> temporal verification
+  -> Kalman correction or prediction-only coast
+  -> lock-state update
+  -> tracking CSV, summary JSON, annotated MP4
+```
+
+Temporal verification:
+
+```text
+Default mode: persistence
+Default history window: 5 frames
+Default confirmations needed: 3
+Blink mode: implemented but disabled by default
+```
+
+The temporal verifier returns:
+
+```text
+temporally_verified
+confirmation_count
+history_size
+verification_mode
+blink_match
+```
+
+Kalman tracker:
+
+```text
+State vector:      [x, y, vx, vy]
+Measurement:       [x, y]
+Motion model:      constant velocity
+Implementation:    NumPy only
+```
+
+Candidate association uses the predicted position from the Kalman filter and rejects candidates outside the gate:
+
+```text
+Default association gate: 60 px
+association_score = 0.40 * fused_score + 0.60 * position_score
+```
+
+Lock states:
+
+```text
+SEARCHING  - no usable track yet
+ACQUIRING  - candidates are being confirmed over time
+LOCKED     - target is temporally verified and measured
+COASTING   - target is temporarily missing, using prediction only
+LOST       - too many missed frames, tracker must reacquire
+```
+
+Phase 7 smoke test:
+
+```powershell
+.\.venv\Scripts\python.exe src\tracker.py --image-dir outputs\tracking-smoke-input --config configs\default.yaml --checkpoint models\checkpoints\best_classifier.pt --output outputs\tracking-test --device cpu --fps 12
+```
+
+Smoke-test result:
+
+```text
+Total frames: 18
+Measurements: 16
+Locked frames: 14
+Coasting frames: 2
+Lost frames: 0
+Maximum consecutive missed frames: 2
+Mean association distance: 1.109044 px
+```
+
+During the smoke test, frames 10 and 11 intentionally hide the target. The tracker switches to `COASTING` with `using_prediction_only=true`, then returns to `LOCKED` on frame 12.
+
+Outputs:
+
+```text
+outputs/tracking-test/tracking_results.csv
+outputs/tracking-test/tracking_summary.json
+outputs/tracking-test/annotated_tracking.mp4
+```
+
+Phase 7 tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_temporal_verifier.py tests\test_tracker.py -v
+.\.venv\Scripts\python.exe -m pytest -v
+```
+
+Result:
+
+```text
+23 targeted Phase 7 tests passed
+33 total project tests passed
+```
+
 ## Current Project Structure
 
 ```text
@@ -449,6 +562,7 @@ fsoc-ml-cv/
     patch-preview/
     preprocessing/
     pipeline-test/
+    tracking-test/
     training/
   review/
     progress_2026-09-07.md
@@ -460,10 +574,17 @@ fsoc-ml-cv/
     prepare_patches.py
     beacon_classifier.py
     train_classifier.py
+    temporal_verifier.py
     tracker.py
     pipeline.py
     evaluate.py
     api.py
+  tests/
+    test_detector.py
+    test_pipeline.py
+    test_temporal_verifier.py
+    test_tracker.py
+  pytest.ini
 ```
 
 ## Notebooks
@@ -486,7 +607,7 @@ Explores candidate detection outputs, candidate counts by scenario, multiple-bea
 notebooks/03_dataset_analysis.ipynb
 ```
 
-Explores patch dataset balance, split counts, patch previews, training history, test metrics, training artifacts, and the Phase 6 single-frame inference output.
+Explores patch dataset balance, split counts, patch previews, training history, test metrics, training artifacts, the Phase 6 single-frame inference output, and the Phase 7 tracking smoke summary.
 
 ## Setup
 
@@ -555,44 +676,17 @@ outputs/pipeline-test/result.json
 outputs/pipeline-test/annotated_result.png
 ```
 
+Sequence tracking:
+
+```text
+outputs/tracking-test/tracking_results.csv
+outputs/tracking-test/tracking_summary.json
+outputs/tracking-test/annotated_tracking.mp4
+```
+
 ## Future Plan
 
-### Next Phase: Temporal Verification
-
-Phase 7 should add temporal beacon verification. The current pipeline decides from one frame only, so it cannot yet check whether a candidate follows the expected beacon blinking pattern over time. Temporal verification should reduce false locks on stars, static bright pixels, and false beacons.
-
-Planned file:
-
-```text
-src/temporal_verifier.py or a clearly separated section of src/pipeline.py
-```
-
-Expected additions:
-
-```text
-- Keep a short frame history per candidate/track
-- Check expected blink period and tolerance
-- Return temporal confidence
-- Reject candidates that do not match the beacon ID pattern
-```
-
-### Kalman Tracking
-
-Implement image-space smoothing and prediction for the beacon centre.
-
-Planned file:
-
-```text
-src/tracker.py
-```
-
-Expected output:
-
-```text
-current x, current y, predicted x, predicted y, lock state
-```
-
-### Full ML/CV Pipeline
+### Next Phase: End-To-End Sequence Pipeline
 
 Extend the current single-frame pipeline with temporal verification and Kalman prediction.
 
@@ -600,6 +694,14 @@ Planned file:
 
 ```text
 src/pipeline.py
+```
+
+Expected additions:
+
+```text
+- A reusable sequence runner that accepts ordered Unity frames
+- Ground-truth evaluation for tracked trajectories where labels are available
+- Cleaner handoff fields for the PID/gimbal layer
 ```
 
 ### API / Unity Integration
@@ -640,4 +742,6 @@ The dataset and model are synthetic. Even if metrics look strong, the classifier
 
 The current CNN can confuse true and false beacon-like glows because they are visually similar in 32 x 32 crops. This is expected at this stage and should improve with temporal verification, more realistic data, and classifier tuning.
 
-The Phase 6 pipeline is single-frame only. It gives PID-ready pixel and normalized errors for one image, but it does not yet remember target history, verify blinking over time, predict the next position, or communicate with Unity.
+The Phase 7 tracker needs ordered frames from the same camera sequence. Random individual dataset images are useful for detector/classifier tests, but real tracking behaviour should be tested with video-like Unity frame streams.
+
+The project still does not communicate with Unity, issue PID commands, rotate a gimbal, or close the control loop. No real tracking accuracy is claimed yet without ground-truth trajectory data.
