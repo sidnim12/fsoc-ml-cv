@@ -523,6 +523,188 @@ Result:
 33 total project tests passed
 ```
 
+### Phase 8: Unity Dataset Adaptation And Baseline Evaluation
+
+Implemented in:
+
+```text
+src/unity_dataset_adapter.py
+src/evaluate_unity_sequence.py
+tests/test_unity_dataset_adapter.py
+tests/test_unity_evaluation.py
+```
+
+This phase adapts a continuous Unity image sequence to the ML/CV evaluation format without copying, moving, resizing, or modifying the original Unity frames.
+
+Unity sequence discovered locally:
+
+```text
+data/raw/unity/smooth_horizontal01/sequence_001/
+```
+
+Expected Unity folder shape:
+
+```text
+data/raw/unity/
+  <scenario-folder>/
+    <sequence-folder>/
+      frame_000000.png
+      frame_000001.png
+      ...
+      labels.csv
+```
+
+Supported image formats:
+
+```text
+.png
+.jpg
+.jpeg
+```
+
+Supported label files:
+
+```text
+labels.csv
+labels.xlsx
+metadata.csv
+metadata.xlsx
+```
+
+Preferred label fields:
+
+```text
+sequence_id, frame_index, timestamp_s, image_path, scenario,
+width, height, target_visible, target_id, target_x, target_y
+```
+
+Accepted aliases include:
+
+```text
+frame_id -> frame_index
+filename -> image_path
+target_present -> target_visible
+cx_px -> target_x
+cy_px -> target_y
+```
+
+Coordinate origin must be explicit:
+
+```powershell
+--coordinate-origin top-left
+--coordinate-origin bottom-left
+```
+
+For bottom-left Unity coordinates, the evaluator converts to OpenCV top-left image coordinates:
+
+```text
+opencv_x = unity_x
+opencv_y = image_height - unity_y
+```
+
+Baseline evaluation command used:
+
+```powershell
+.\.venv\Scripts\python.exe src\evaluate_unity_sequence.py --sequence-dir data\raw\unity\smooth_horizontal01\sequence_001 --config configs\default.yaml --checkpoint models\checkpoints\best_classifier.pt --fps 30 --coordinate-origin top-left --output outputs\unity-evaluation\smooth_horizontal_01 --expected-count 300 --expected-width 640 --expected-height 480 --device cpu
+```
+
+Dataset validation result:
+
+```text
+Images: 300 PNG
+Resolution: 640 x 480
+Channels: 3
+Frame range: 0 -> 299
+Continuous frames: true
+Duplicate frame numbers: 0
+Duplicate image files: 0
+Unreadable images: 0
+Labels found: labels.csv
+Ground truth available: true
+Unity Editor UI suspected: false
+```
+
+Baseline detection result on the first Unity sequence:
+
+```text
+Visible target frames: 300
+Candidate recall: 0.096667
+Accepted-detection recall: 0.0
+Missed detections: 300
+Target-found rate: 0.563333
+```
+
+Baseline tracking result:
+
+```text
+Time to first lock: 2 frames / 0.066667 s
+Locked frames: 84.333333%
+Coasting frames: 10.666667%
+Lost frames: 0.333333%
+Maximum consecutive missed frames: 9
+Filtered MAE: 288.899709 px
+```
+
+Domain-gap finding:
+
+```text
+Average candidates per frame: 8.086667
+Frames with multiple candidates: 300
+Average correct-beacon probability across candidates: 0.112807
+Selected average correct-beacon probability: 0.581765
+Most common failure: selected_candidate_far_from_ground_truth
+```
+
+The current Python-trained CNN frequently locks onto bright Unity artifacts instead of the labelled beacon. This is useful baseline evidence and should be fixed with detector tuning, better Unity-labelled data, and later fine-tuning. This phase intentionally does not retrain the CNN.
+
+Phase 8 outputs:
+
+```text
+data/processed/unity/smooth_horizontal_01/manifest.csv
+outputs/unity-evaluation/smooth_horizontal_01/dataset_validation.json
+outputs/unity-evaluation/smooth_horizontal_01/normalized_manifest.csv
+outputs/unity-evaluation/smooth_horizontal_01/frame_predictions.csv
+outputs/unity-evaluation/smooth_horizontal_01/detection_metrics.json
+outputs/unity-evaluation/smooth_horizontal_01/tracking_metrics.json
+outputs/unity-evaluation/smooth_horizontal_01/performance_metrics.json
+outputs/unity-evaluation/smooth_horizontal_01/domain_gap_report.json
+outputs/unity-evaluation/smooth_horizontal_01/evaluation_summary.json
+outputs/unity-evaluation/smooth_horizontal_01/annotated_tracking.mp4
+outputs/unity-evaluation/smooth_horizontal_01/trajectory_comparison.png
+outputs/unity-evaluation/smooth_horizontal_01/confidence_over_time.png
+outputs/unity-evaluation/smooth_horizontal_01/coordinate_error_over_time.png
+outputs/unity-evaluation/smooth_horizontal_01/lock_state_timeline.png
+outputs/unity-evaluation/smooth_horizontal_01/failure_montage.png
+```
+
+If labels are missing, the same evaluator still runs inference and diagnostics, marks quantitative ground-truth metrics as `null`, and creates:
+
+```text
+outputs/unity-evaluation/<sequence>/required_labels_template.csv
+```
+
+Why this one sequence is not used for training:
+
+```text
+One continuous sequence has strong frame-to-frame similarity.
+Splitting it into train/test frames would leak temporal information.
+It is better used as a held-out baseline evaluation sequence.
+```
+
+Phase 8 tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_unity_dataset_adapter.py tests\test_unity_evaluation.py -v
+.\.venv\Scripts\python.exe -m pytest -v
+```
+
+Result:
+
+```text
+19 targeted Phase 8 tests passed
+52 total project tests passed
+```
+
 ## Current Project Structure
 
 ```text
@@ -536,6 +718,8 @@ fsoc-ml-cv/
       python-generated/
       unity/
     processed/
+      unity/
+        smooth_horizontal_01/
       train/
         correct/
         false/
@@ -562,6 +746,8 @@ fsoc-ml-cv/
     patch-preview/
     preprocessing/
     pipeline-test/
+    unity-evaluation/
+      smooth_horizontal_01/
     tracking-test/
     training/
   review/
@@ -576,6 +762,8 @@ fsoc-ml-cv/
     train_classifier.py
     temporal_verifier.py
     tracker.py
+    unity_dataset_adapter.py
+    evaluate_unity_sequence.py
     pipeline.py
     evaluate.py
     api.py
@@ -584,6 +772,8 @@ fsoc-ml-cv/
     test_pipeline.py
     test_temporal_verifier.py
     test_tracker.py
+    test_unity_dataset_adapter.py
+    test_unity_evaluation.py
   pytest.ini
 ```
 
@@ -607,7 +797,7 @@ Explores candidate detection outputs, candidate counts by scenario, multiple-bea
 notebooks/03_dataset_analysis.ipynb
 ```
 
-Explores patch dataset balance, split counts, patch previews, training history, test metrics, training artifacts, the Phase 6 single-frame inference output, and the Phase 7 tracking smoke summary.
+Explores patch dataset balance, split counts, patch previews, training history, test metrics, training artifacts, the Phase 6 single-frame inference output, the Phase 7 tracking smoke summary, and the Phase 8 Unity baseline evaluation.
 
 ## Setup
 
@@ -684,24 +874,27 @@ outputs/tracking-test/tracking_summary.json
 outputs/tracking-test/annotated_tracking.mp4
 ```
 
-## Future Plan
-
-### Next Phase: End-To-End Sequence Pipeline
-
-Extend the current single-frame pipeline with temporal verification and Kalman prediction.
-
-Planned file:
+Unity baseline evaluation:
 
 ```text
-src/pipeline.py
+data/processed/unity/smooth_horizontal_01/manifest.csv
+outputs/unity-evaluation/smooth_horizontal_01/
 ```
+
+## Future Plan
+
+### Next Phase: Unity Domain Adaptation
+
+Use the Phase 8 baseline results to improve Unity-frame performance without contaminating evaluation data.
 
 Expected additions:
 
 ```text
-- A reusable sequence runner that accepts ordered Unity frames
-- Ground-truth evaluation for tracked trajectories where labels are available
-- Cleaner handoff fields for the PID/gimbal layer
+- Review Unity render settings and remove bright artifacts where possible
+- Tune preprocessing/detector thresholds for Unity frames
+- Ask Unity to export more varied labelled sequences
+- Fine-tune only after collecting multiple independent sequences
+- Keep at least one labelled sequence held out for honest evaluation
 ```
 
 ### API / Unity Integration
@@ -714,7 +907,24 @@ Planned file:
 src/api.py
 ```
 
-The API should accept a Unity camera frame and return:
+### PID / Gimbal Integration
+
+Connect filtered and predicted pixel coordinates to the PID controller for pan/tilt movement.
+
+Expected handoff fields:
+
+```text
+target_found
+filtered_x_px
+filtered_y_px
+predicted_x_px
+predicted_y_px
+control_error_x
+control_error_y
+lock_state
+```
+
+The future API should accept a Unity camera frame and return:
 
 ```json
 {
@@ -738,10 +948,10 @@ Search -> detect -> identify -> align -> track -> disturb -> lose lock -> reacqu
 
 ## Current Limitations
 
-The dataset and model are synthetic. Even if metrics look strong, the classifier must be tested on Unity-generated frames under different lighting, motion, camera exposure, blur, target scale, and noise.
+The CNN was trained on Python-generated synthetic images and has now been tested on one labelled Unity sequence. The Phase 8 baseline shows a clear domain gap, so the classifier must be improved using more varied Unity-generated frames before it is trusted.
 
 The current CNN can confuse true and false beacon-like glows because they are visually similar in 32 x 32 crops. This is expected at this stage and should improve with temporal verification, more realistic data, and classifier tuning.
 
-The Phase 7 tracker needs ordered frames from the same camera sequence. Random individual dataset images are useful for detector/classifier tests, but real tracking behaviour should be tested with video-like Unity frame streams.
+The Phase 7 tracker needs ordered frames from the same camera sequence. Phase 8 provides an offline sequence evaluator, but live Unity communication is still not implemented.
 
-The project still does not communicate with Unity, issue PID commands, rotate a gimbal, or close the control loop. No real tracking accuracy is claimed yet without ground-truth trajectory data.
+The project still does not communicate with Unity, issue PID commands, rotate a gimbal, or close the control loop. Current Unity metrics are baseline offline metrics from one sequence, not final system performance.
