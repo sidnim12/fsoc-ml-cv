@@ -9,16 +9,32 @@ image:
   patch_size: 32
 
 detector:
-  threshold: 220
-  min_area: 2
-  max_area: 600
+  threshold_method: fixed
+  threshold: 180
+  min_area: 3
+  max_area: 1000
+  min_radius: 1
+  max_radius: 25
   blur_kernel: 5
-  circularity_min: 0.15
+  morph_kernel: 3
+  opening_iterations: 1
+  closing_iterations: 1
+  min_circularity: 0.15
+  match_tolerance: 12
 
 classifier:
   confidence_threshold: 0.55
   model_path: models/checkpoints/best_classifier.pt
   onnx_path: models/exported/beacon_classifier.onnx
+
+pipeline:
+  target_id: Terminal_B
+  crop_size: 40
+  patch_size: 32
+  device: auto
+  fusion:
+    cnn_weight: 0.80
+    cv_weight: 0.20
 
 temporal:
   enabled: true

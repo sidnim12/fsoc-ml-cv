@@ -313,6 +313,103 @@ Training command:
 
 Note: PyTorch is installed in the project virtual environment as `torch 2.14.0+cpu`.
 
+### Phase 6: Complete Single-Frame Inference Pipeline
+
+Implemented in:
+
+```text
+src/pipeline.py
+```
+
+This phase connects the completed ML/CV pieces for one independent camera frame:
+
+```text
+frame or image path
+  -> input validation and BGR conversion
+  -> preprocessing
+  -> bright candidate detection
+  -> candidate patch extraction
+  -> CNN classification
+  -> CNN/CV fused ranking
+  -> PID-ready coordinate output
+```
+
+This phase does not implement temporal verification, Kalman tracking, PID control, FastAPI, or Unity communication yet.
+
+Pipeline outputs:
+
+```text
+outputs/pipeline-test/result.json
+outputs/pipeline-test/annotated_result.png
+```
+
+Command used:
+
+```powershell
+.\.venv\Scripts\python.exe src\pipeline.py --image data\raw\python-generated\synthetic_0378_target_with_false_beacons.png --config configs\default.yaml --checkpoint models\checkpoints\best_classifier.pt --output outputs\pipeline-test --device cpu
+```
+
+Smoke-test result on the multiple-beacon frame:
+
+```text
+Target found: true
+Status: target_detected
+Candidates kept: 4
+Selected candidate ID: 2
+CNN probability: 0.7920
+CV baseline score: 0.7225
+Fused score: 0.7781
+Pixel error: dx=238.0 px, dy=204.0 px
+Control error: pan=0.74375, tilt=-0.85
+```
+
+The pipeline keeps every valid bright candidate and records per-candidate CNN probability, false probability, predicted class, CNN confidence, CV baseline score, and fused score.
+
+Fusion formula:
+
+```text
+fused_score = 0.80 * correct_probability + 0.20 * baseline_score
+```
+
+The weights are configurable in `configs/default.yaml` and must sum to `1.0`.
+
+Coordinate sign convention:
+
+```text
+image_error_x_px = target_x - frame_center_x
+image_error_y_px = target_y - frame_center_y
+```
+
+Image-space meaning:
+
+```text
+Right = positive X
+Left = negative X
+Down = positive Y
+Up = negative Y
+```
+
+Control-space meaning:
+
+```text
+control_error_x = image_error_x_px / frame_center_x
+control_error_y = -image_error_y_px / frame_center_y
+```
+
+So right is positive pan, left is negative pan, up is positive tilt, and down is negative tilt. Normalized control errors are clamped to `[-1, 1]`.
+
+Phase 6 tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_pipeline.py -v
+```
+
+Result:
+
+```text
+10 passed
+```
+
 ## Current Project Structure
 
 ```text
@@ -351,7 +448,11 @@ fsoc-ml-cv/
     dataset-preview/
     patch-preview/
     preprocessing/
+    pipeline-test/
     training/
+  review/
+    progress_2026-09-07.md
+    progress_2026-09-08.md
   src/
     generate_dataset.py
     preprocessing.py
@@ -385,7 +486,7 @@ Explores candidate detection outputs, candidate counts by scenario, multiple-bea
 notebooks/03_dataset_analysis.ipynb
 ```
 
-Explores patch dataset balance, split counts, patch previews, training history, test metrics, and training artifacts.
+Explores patch dataset balance, split counts, patch previews, training history, test metrics, training artifacts, and the Phase 6 single-frame inference output.
 
 ## Setup
 
@@ -447,29 +548,32 @@ models/checkpoints/
 outputs/training/
 ```
 
-## Future Plan
-
-### Next Phase: Improve CNN Performance
-
-The first CNN is working, but the test recall is not perfect. Next improvements should focus on:
+Single-frame pipeline:
 
 ```text
-- Better false-patch diversity
-- More realistic Unity-style lighting variation
-- More target-absent hard negatives
-- More balanced train/validation/test examples
-- Experimenting with crop size and augmentation strength
-- Exporting the final classifier to ONNX
+outputs/pipeline-test/result.json
+outputs/pipeline-test/annotated_result.png
 ```
 
-### Temporal Beacon Verification
+## Future Plan
 
-After the classifier, add a temporal verification module that checks whether the selected candidate follows the expected beacon blinking pattern. This helps reject stars and static false lights.
+### Next Phase: Temporal Verification
+
+Phase 7 should add temporal beacon verification. The current pipeline decides from one frame only, so it cannot yet check whether a candidate follows the expected beacon blinking pattern over time. Temporal verification should reduce false locks on stars, static bright pixels, and false beacons.
 
 Planned file:
 
 ```text
-src/pipeline.py or src/temporal_verifier.py
+src/temporal_verifier.py or a clearly separated section of src/pipeline.py
+```
+
+Expected additions:
+
+```text
+- Keep a short frame history per candidate/track
+- Check expected blink period and tolerance
+- Return temporal confidence
+- Reject candidates that do not match the beacon ID pattern
 ```
 
 ### Kalman Tracking
@@ -490,7 +594,7 @@ current x, current y, predicted x, predicted y, lock state
 
 ### Full ML/CV Pipeline
 
-Combine preprocessing, candidate detection, CNN classification, temporal verification, and Kalman prediction into one callable pipeline.
+Extend the current single-frame pipeline with temporal verification and Kalman prediction.
 
 Planned file:
 
@@ -535,3 +639,5 @@ Search -> detect -> identify -> align -> track -> disturb -> lose lock -> reacqu
 The dataset and model are synthetic. Even if metrics look strong, the classifier must be tested on Unity-generated frames under different lighting, motion, camera exposure, blur, target scale, and noise.
 
 The current CNN can confuse true and false beacon-like glows because they are visually similar in 32 x 32 crops. This is expected at this stage and should improve with temporal verification, more realistic data, and classifier tuning.
+
+The Phase 6 pipeline is single-frame only. It gives PID-ready pixel and normalized errors for one image, but it does not yet remember target history, verify blinking over time, predict the next position, or communicate with Unity.
