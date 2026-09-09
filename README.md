@@ -1183,3 +1183,17 @@ Average effective processing FPS: 7.981692
 Compared with the previous trained evaluation, accepted recall improved from 0.074614 to 0.245962 and locked frames improved from 44.583333% to 50.805556%, while filtered error stayed low.
 
 Remaining issue: sequence_005 speed variation still has 0% LOCKED despite low pixel error, and sequence_008 reacquisition still has very low accepted recall. The next improvement should tune state-transition/lock criteria instead of lowering confidence too aggressively.
+
+### Speed-Variation Motion Diagnostic
+
+The speed-variation sequence has non-smooth ground-truth motion. Its labels show large frame-to-frame target jumps, so forcing the tracker to lock more aggressively increases false/unstable tracking error.
+
+Current diagnostic for sequence_005:
+
+```text
+Mean visible target step: 132.33 px/frame
+Maximum visible target step: 377.41 px/frame
+Large motion steps above 120 px/frame: 110
+```
+
+Because of this, the safer behavior is to keep accurate ACQUIRING measurements instead of forcing LOCKED state on discontinuous motion. Future Unity exports should make speed variation fast but physically continuous if the demo expects stable lock.

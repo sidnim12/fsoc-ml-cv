@@ -113,6 +113,9 @@ BATCH_METRICS_COLUMNS = [
     "mean_processing_time_ms",
     "effective_processing_fps",
     "most_common_failure_reason",
+    "ground_truth_motion_step_max_px",
+    "ground_truth_large_motion_step_count",
+    "motion_quality_note",
     "error",
 ]
 
@@ -411,6 +414,41 @@ def calculate_coordinate_metrics(rows: Sequence[Mapping[str, object]], ground_tr
         "filtered_count": len(filtered_errors),
     }
 
+
+def calculate_ground_truth_motion_metrics(rows: Sequence[Mapping[str, object]]) -> Dict[str, object]:
+    """Summarize ground-truth target motion so jumpy sequences are visible."""
+    visible_points = []
+    for row in rows:
+        if bool_or_none(row.get("target_visible")) is not True:
+            continue
+        x_value = float_or_none(row.get("target_x"))
+        y_value = float_or_none(row.get("target_y"))
+        frame_value = row.get("frame_index")
+        if x_value is None or y_value is None or frame_value is None:
+            continue
+        visible_points.append((int(frame_value), x_value, y_value))
+
+    steps = []
+    for previous, current in zip(visible_points, visible_points[1:]):
+        previous_frame, previous_x, previous_y = previous
+        current_frame, current_x, current_y = current
+        frame_gap = max(1, current_frame - previous_frame)
+        distance = math.hypot(current_x - previous_x, current_y - previous_y)
+        steps.append(distance / frame_gap)
+
+    large_step_threshold_px = 120.0
+    return {
+        "available": bool(steps),
+        "visible_motion_step_mean_px": mean_or_none(steps),
+        "visible_motion_step_max_px": max_or_none(steps),
+        "large_motion_step_threshold_px": large_step_threshold_px,
+        "large_motion_step_count": sum(1 for step in steps if step > large_step_threshold_px),
+        "motion_quality_note": (
+            "ground truth has large frame-to-frame jumps; low lock can be caused by non-smooth target motion"
+            if any(step > large_step_threshold_px for step in steps)
+            else "ground-truth target motion is locally smooth"
+        ),
+    }
 
 def calculate_tracking_metrics(rows: Sequence[Mapping[str, object]], fps: float) -> Dict[str, object]:
     """Calculate lock-state and temporal tracking metrics."""
@@ -1140,6 +1178,7 @@ def evaluate_unity_sequence(
     confidence_threshold = float(getattr(getattr(pipeline, "inference_config", object()), "confidence_threshold", 0.55))
     domain_gap_report = calculate_domain_gap_report(prediction_rows, confidence_threshold, ground_truth_available)
     tracking_metrics["smoothness"] = smoothness_metrics
+    tracking_metrics["ground_truth_motion"] = calculate_ground_truth_motion_metrics(prediction_rows)
     tracking_metrics["coordinate_metrics"] = coordinate_metrics
 
     write_json(output_path / "detection_metrics.json", detection_metrics)
@@ -1154,6 +1193,7 @@ def evaluate_unity_sequence(
         save_coordinate_error_plot(prediction_rows, output_path / "coordinate_error_over_time.png")
     save_failure_montage(prediction_rows, output_path / "failure_montage.png")
 
+    motion_metrics = tracking_metrics.get("ground_truth_motion", {})
     evaluation_summary = {
         "sequence_dir": str(inventory.sequence_dir),
         "image_count": inventory.image_count,
@@ -1173,6 +1213,9 @@ def evaluate_unity_sequence(
         "mean_processing_time_ms": performance_metrics.get("mean_processing_time_ms"),
         "effective_processing_fps": performance_metrics.get("effective_processing_fps"),
         "most_common_failure_reason": domain_gap_report.get("most_common_failure_reason"),
+        "ground_truth_motion_step_max_px": motion_metrics.get("visible_motion_step_max_px") if isinstance(motion_metrics, Mapping) else None,
+        "ground_truth_large_motion_step_count": motion_metrics.get("large_motion_step_count") if isinstance(motion_metrics, Mapping) else None,
+        "motion_quality_note": motion_metrics.get("motion_quality_note") if isinstance(motion_metrics, Mapping) else None,
         "outputs_dir": str(output_path),
     }
     write_json(output_path / "evaluation_summary.json", evaluation_summary)
