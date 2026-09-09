@@ -1112,3 +1112,47 @@ The current CNN can confuse true and false beacon-like glows because they are vi
 The Phase 7 tracker needs ordered frames from the same camera sequence. Phase 8 provides an offline sequence evaluator, but live Unity communication is still not implemented.
 
 The project still does not communicate with Unity, issue PID commands, rotate a gimbal, or close the control loop. Current Unity metrics are baseline offline metrics from one sequence, not final system performance.
+
+### Official Unity 1600x900 V2 Evaluation
+
+The official Unity 1600x900 dataset was validated with 12 sequences and 3600 total frames. Each sequence contains 300 continuous PNG frames and a matching labels.csv file.
+
+Scenarios covered: smooth_horizontal, smooth_vertical, diagonal_motion, curved_motion, speed_variation, disturbance_shake, beacon_dropout, reacquisition, dim_beacon, multiple_beacon, target_absent, and false_beacon_star_heavy.
+
+Baseline evaluation completed on all 3600 frames:
+
+```text
+Average candidate recall: 0.912883
+Average accepted recall: 0.377689
+Average filtered MAE: 303.05556 px
+```
+
+Unity patch preparation produced:
+
+```text
+Total patches: 10772
+Correct patches: 2693
+False patches: 8079
+```
+
+The split logic was updated so target-absent-only sequences do not become the validation set. CNN training completed with early stopping after 12 epochs:
+
+```text
+Test accuracy: 0.8639
+Test precision: 0.7034
+Test recall: 0.7876
+Test F1-score: 0.7432
+Test ROC-AUC: 0.9299
+```
+
+Full-frame trained evaluation completed on all 3600 frames:
+
+```text
+Average candidate recall: 0.999650
+Average accepted recall: 0.074614
+Average filtered MAE: 5.919378 px
+Average locked-frame percentage: 44.583333
+Average effective processing FPS: 8.093595
+```
+
+Interpretation: OpenCV candidate recall is now excellent and filtered localization error is very low. The remaining weakness is accepted detection recall/confidence gating, especially reacquisition and speed-variation behavior. Next tuning should focus on confidence thresholds, temporal verification, and tracker lock-state parameters rather than basic candidate detection.

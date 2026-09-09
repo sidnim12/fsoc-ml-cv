@@ -51,14 +51,22 @@ def find_sequences(root: str | Path) -> List[Path]:
     return sequences
 
 
-def split_for_sequence(sequence_index: int, sequence_count: int) -> str:
-    """Assign complete sequences to train, validation and test splits."""
-    if sequence_count >= 3:
-        if sequence_index == sequence_count - 2:
-            return "validation"
-        if sequence_index == sequence_count - 1:
-            return "test"
-    return "train"
+def build_sequence_split_map(sequences: Sequence[Path]) -> Dict[Path, str]:
+    """Assign sequences while keeping positives in validation and test."""
+    positive_sequences: List[Path] = []
+    for sequence_dir in sequences:
+        labels = pd.read_csv(sequence_dir / "labels.csv")
+        has_positive = "target_present" in labels and (labels["target_present"].fillna(0).astype(int) == 1).any()
+        if has_positive:
+            positive_sequences.append(sequence_dir)
+
+    split_map = {sequence_dir: "train" for sequence_dir in sequences}
+    if len(positive_sequences) >= 2:
+        split_map[positive_sequences[-2]] = "validation"
+        split_map[positive_sequences[-1]] = "test"
+    elif len(positive_sequences) == 1:
+        split_map[positive_sequences[-1]] = "test"
+    return split_map
 
 
 def snap_to_brightest(
@@ -150,10 +158,11 @@ def build_unity_patch_table(
     """Build Unity-domain positive and negative patch metadata."""
     pipeline_config = load_config(config_path)
     sequences = find_sequences(root)
+    split_map = build_sequence_split_map(sequences)
     records: List[Dict[str, object]] = []
 
     for sequence_number, sequence_dir in enumerate(sequences):
-        split = split_for_sequence(sequence_number, len(sequences))
+        split = split_map[sequence_dir]
         labels = pd.read_csv(sequence_dir / "labels.csv")
         sequence_id = int(labels["sequence_id"].iloc[0]) if "sequence_id" in labels else sequence_number + 1
         scenario = str(labels["scenario"].iloc[0]) if "scenario" in labels else sequence_dir.name
