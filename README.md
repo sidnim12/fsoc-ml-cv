@@ -1156,3 +1156,30 @@ Average effective processing FPS: 8.093595
 ```
 
 Interpretation: OpenCV candidate recall is now excellent and filtered localization error is very low. The remaining weakness is accepted detection recall/confidence gating, especially reacquisition and speed-variation behavior. Next tuning should focus on confidence thresholds, temporal verification, and tracker lock-state parameters rather than basic candidate detection.
+
+### Unity 1600x900 Tuning Result
+
+After CNN training, a confidence and tracking sweep was run on representative sequences. Very loose settings increased lock but produced large errors on speed variation, so the balanced Unity settings are:
+
+```yaml
+classifier:
+  confidence_threshold: 0.25
+temporal:
+  min_confirmations: 2
+tracker:
+  association_gate_px: 120
+```
+
+Full 3600-frame tuned evaluation:
+
+```text
+Average candidate recall: 0.999650
+Average accepted recall: 0.245962
+Average filtered MAE: 6.288764 px
+Average locked-frame percentage: 50.805556
+Average effective processing FPS: 7.981692
+```
+
+Compared with the previous trained evaluation, accepted recall improved from 0.074614 to 0.245962 and locked frames improved from 44.583333% to 50.805556%, while filtered error stayed low.
+
+Remaining issue: sequence_005 speed variation still has 0% LOCKED despite low pixel error, and sequence_008 reacquisition still has very low accepted recall. The next improvement should tune state-transition/lock criteria instead of lowering confidence too aggressively.
