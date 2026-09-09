@@ -1009,6 +1009,7 @@ def evaluate_unity_sequence(
     expected_height: Optional[int] = None,
     match_tolerance_px: float = 12.0,
     output_scale: int = 1,
+    label_frame_offset: int = 0,
     device: Optional[str] = None,
     pipeline: Optional[object] = None,
     tracker: Optional[object] = None,
@@ -1035,9 +1036,13 @@ def evaluate_unity_sequence(
             default_width=frame_width,
             default_height=frame_height,
             fps=fps,
+            frame_index_offset=label_frame_offset,
         )
+        if label_frame_offset:
+            valid_frame_numbers = {frame.frame_index for frame in inventory.frames}
+            labels = [row for row in labels if int(row["frame_index"]) in valid_frame_numbers]
     missing_references = missing_label_image_references(labels)
-    label_validation = validate_unity_labels(labels, inventory)
+    label_validation = validate_unity_labels(labels, inventory, require_all_frames=label_frame_offset == 0)
     validation["label_image_references_valid"] = not missing_references
     validation["missing_label_image_references"] = missing_references
     validation["label_validation"] = label_validation
@@ -1156,6 +1161,7 @@ def evaluate_unity_sequence(
         "resolution": f"{frame_width}x{frame_height}",
         "output_video_resolution": f"{frame_width * output_scale}x{frame_height * output_scale}",
         "output_scale": output_scale,
+        "label_frame_offset": label_frame_offset,
         "labels_found": str(chosen_labels_path) if chosen_labels_path else None,
         "ground_truth_available": ground_truth_available,
         "dataset_usable": bool(validation["usable"]),
@@ -1219,6 +1225,7 @@ def evaluate_unity_sequences(
     expected_height: Optional[int] = None,
     match_tolerance_px: float = 12.0,
     output_scale: int = 1,
+    label_frame_offset: int = 0,
     device: Optional[str] = None,
     pipeline: Optional[object] = None,
     tracker_factory: Optional[TrackerFactory] = None,
@@ -1247,6 +1254,7 @@ def evaluate_unity_sequences(
                 expected_height=expected_height,
                 match_tolerance_px=match_tolerance_px,
                 output_scale=output_scale,
+                label_frame_offset=label_frame_offset,
                 device=device,
                 pipeline=shared_pipeline,
                 tracker_factory=tracker_factory,
@@ -1287,6 +1295,7 @@ def evaluate_unity_sequences(
             "expected_width": expected_width,
             "expected_height": expected_height,
             "output_scale": output_scale,
+            "label_frame_offset": label_frame_offset,
             "summary": batch_summary,
             "sequences": rows,
         },
@@ -1314,6 +1323,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--expected-height", type=int, default=None, help="Optional expected height; omitted means auto-detect.")
     parser.add_argument("--match-tolerance", type=float, default=12.0)
     parser.add_argument("--output-scale", type=int, default=1, help="Scale only the annotated MP4 for easier presentation viewing.")
+    parser.add_argument("--label-frame-offset", type=int, default=0, help="Shift label frame IDs when Unity labels are offset from exported images.")
     parser.add_argument("--device", default=None, help="Optional torch device override, e.g. cpu or cuda.")
     parser.add_argument("--batch", action="store_true", help="Evaluate every sequence discovered under --sequence-dir.")
     return parser.parse_args(argv)
@@ -1337,6 +1347,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             expected_height=args.expected_height,
             match_tolerance_px=args.match_tolerance,
             output_scale=args.output_scale,
+            label_frame_offset=args.label_frame_offset,
             device=args.device,
         )
         summary = result["summary"]
@@ -1364,6 +1375,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         expected_height=args.expected_height,
         match_tolerance_px=args.match_tolerance,
         output_scale=args.output_scale,
+        label_frame_offset=args.label_frame_offset,
         device=args.device,
     )
 

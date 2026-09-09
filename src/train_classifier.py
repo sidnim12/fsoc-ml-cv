@@ -701,8 +701,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         print(f"  Recall: {float(test_metrics['recall']):.4f}")
         print(f"  F1-score: {float(test_metrics['f1']):.4f}")
         print(f"  ROC-AUC: {float(test_metrics['roc_auc']):.4f}")
-        print("\nSynthetic-data warning: current results are from synthetic patches only.")
-        print("The classifier must later be tested on Unity-generated frames with varied lighting, movement and noise.")
+        print("\nTraining note: patch-level results must still be checked with full-frame sequence evaluation.")
     except Exception as exc:
         raise SystemExit(f"Training failed: {exc}") from exc
 

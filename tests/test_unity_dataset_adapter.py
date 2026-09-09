@@ -107,6 +107,17 @@ def test_csv_label_loading_and_alternative_column_names(tmp_path: Path) -> None:
     assert rows[0]["target_y"] == 30.0
 
 
+def test_label_frame_index_offset(tmp_path: Path) -> None:
+    sequence = tmp_path / "sequence_001"
+    write_image(sequence / "frame_000000.png")
+    labels = sequence / "labels.csv"
+    labels.write_text("frame_id,filename,target_present,cx_px,cy_px\n0,frame_000000.png,1,12,30\n", encoding="utf-8")
+
+    rows = normalize_labels(labels, sequence, "top-left", default_width=64, default_height=48, frame_index_offset=1)
+
+    assert rows[0]["frame_index"] == 1
+
+
 def test_xlsx_label_loading(tmp_path: Path) -> None:
     sequence = tmp_path / "sequence_001"
     write_image(sequence / "frame_000000.png")

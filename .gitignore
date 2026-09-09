@@ -16,6 +16,7 @@ outputs/**
 !outputs/**/
 !outputs/**/.gitkeep
 models/checkpoints/*.pt
+models/checkpoints/**/*.pt
 models/exported/*.onnx
 
 # Keep labels and structure markers.

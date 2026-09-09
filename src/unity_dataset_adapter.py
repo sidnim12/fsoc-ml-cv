@@ -512,6 +512,7 @@ def normalize_labels(
     default_width: Optional[int] = None,
     default_height: Optional[int] = None,
     fps: Optional[float] = None,
+    frame_index_offset: int = 0,
 ) -> List[Dict[str, object]]:
     """Normalize CSV/XLSX Unity labels into OpenCV top-left coordinates."""
     validate_coordinate_origin(coordinate_origin)
@@ -528,6 +529,7 @@ def normalize_labels(
             frame_index = parse_frame_number(image_path)
         if frame_index is None:
             frame_index = row_index
+        frame_index = int(frame_index) + int(frame_index_offset)
 
         width = int_or_none(canonical_value(raw_row, column_lookup, "width")) or default_width
         height = int_or_none(canonical_value(raw_row, column_lookup, "height")) or default_height
@@ -597,13 +599,18 @@ def missing_label_image_references(labels: Sequence[Mapping[str, object]]) -> Li
     return missing
 
 
-def validate_unity_labels(labels: Sequence[Mapping[str, object]], inventory: UnitySequenceInventory) -> Dict[str, object]:
+def validate_unity_labels(
+    labels: Sequence[Mapping[str, object]],
+    inventory: UnitySequenceInventory,
+    require_all_frames: bool = True,
+) -> Dict[str, object]:
     """Validate label rows against discovered image frames and image bounds."""
     if not labels:
         return {
             "labels_available": False,
             "label_count": 0,
             "labels_cover_all_frames": False,
+            "require_all_frames": require_all_frames,
             "duplicate_label_frame_numbers": [],
             "label_rows_for_missing_images": [],
             "image_frames_without_labels": [],
@@ -649,7 +656,7 @@ def validate_unity_labels(labels: Sequence[Mapping[str, object]], inventory: Uni
     usable = (
         not duplicate_label_frames
         and not rows_for_missing_images
-        and not image_frames_without_labels
+        and (not require_all_frames or not image_frames_without_labels)
         and not visible_rows_missing_coordinates
         and not out_of_bounds
     )
@@ -657,6 +664,7 @@ def validate_unity_labels(labels: Sequence[Mapping[str, object]], inventory: Uni
         "labels_available": True,
         "label_count": len(labels),
         "labels_cover_all_frames": not image_frames_without_labels,
+        "require_all_frames": require_all_frames,
         "duplicate_label_frame_numbers": duplicate_label_frames,
         "label_rows_for_missing_images": rows_for_missing_images,
         "image_frames_without_labels": image_frames_without_labels,

@@ -530,6 +530,7 @@ Implemented in:
 ```text
 src/unity_dataset_adapter.py
 src/evaluate_unity_sequence.py
+src/prepare_unity_patches.py
 configs/unity.yaml
 tests/test_unity_dataset_adapter.py
 tests/test_unity_evaluation.py
@@ -708,6 +709,125 @@ outputs/unity-evaluation/final_metrics.csv
 outputs/unity-evaluation/final_summary.json
 ```
 
+### Unity 2400-Frame Training Pass
+
+New Unity dataset checked locally:
+
+```text
+data/raw/unity/cont_dataset_2400/unity_base_2400/
+```
+
+Contents:
+
+```text
+8 sequences
+300 PNG frames per sequence
+2400 total frames
+1280 x 720 resolution
+8 labels.csv files
+```
+
+Scenarios:
+
+```text
+smooth_horizontal
+smooth_vertical
+diagonal
+curved
+speed_variation
+disturbance
+beacon_dropout
+reacquisition
+```
+
+Label timing finding:
+
+```text
+The exported label at frame t best matches image frame t+1.
+Evaluation/training for this dataset uses --label-frame-offset 1.
+```
+
+Unity-domain patch preparation:
+
+```powershell
+.\.venv\Scripts\python.exe src\prepare_unity_patches.py --root data\raw\unity\cont_dataset_2400\unity_base_2400 --output data\processed\unity_base_2400_patches --config configs\unity.yaml --label-frame-offset 1 --crop-size 64 --match-tolerance 24 --snap-radius 64 --snap-min-intensity 180 --max-negatives-per-frame 5 --max-negative-ratio 3 --seed 42
+```
+
+Patch output:
+
+```text
+data/processed/unity_base_2400_patches/patch_labels.csv
+data/processed/unity_base_2400_patches/dataset_summary.json
+```
+
+Patch counts:
+
+```text
+Total patches: 5624
+Correct patches: 1406
+False patches: 4218
+Train: 1020 correct, 3060 false
+Validation: 184 correct, 552 false
+Test: 202 correct, 606 false
+```
+
+Unity-domain classifier training:
+
+```powershell
+.\.venv\Scripts\python.exe src\train_classifier.py --metadata data\processed\unity_base_2400_patches\patch_labels.csv --data-root data\processed\unity_base_2400_patches --output-dir outputs\training\unity_base_2400 --checkpoint-dir models\checkpoints\unity_base_2400 --epochs 15 --batch-size 64 --learning-rate 0.001 --patience 4 --device cpu
+```
+
+Training outputs:
+
+```text
+models/checkpoints/unity_base_2400/best_classifier.pt
+models/checkpoints/unity_base_2400/last_classifier.pt
+outputs/training/unity_base_2400/history.csv
+outputs/training/unity_base_2400/test_metrics.json
+outputs/training/unity_base_2400/classification_report.json
+outputs/training/unity_base_2400/confusion_matrix.png
+outputs/training/unity_base_2400/training_curves.png
+outputs/training/unity_base_2400/sample_predictions.png
+```
+
+Patch-level test result:
+
+```text
+Accuracy: 1.0000
+Precision: 1.0000
+Recall: 1.0000
+F1-score: 1.0000
+ROC-AUC: 1.0000
+```
+
+Full-frame evaluation with the Unity-trained checkpoint:
+
+```powershell
+.\.venv\Scripts\python.exe src\evaluate_unity_sequence.py --batch --sequence-dir data\raw\unity\cont_dataset_2400\unity_base_2400 --config configs\unity.yaml --checkpoint models\checkpoints\unity_base_2400\best_classifier.pt --fps 30 --coordinate-origin top-left --output outputs\unity-evaluation\unity_base_2400_trained --output-scale 1 --match-tolerance 24 --label-frame-offset 1 --device cpu
+```
+
+Before/after full-frame result:
+
+```text
+Before Unity training:
+  Candidate recall: 0.033074
+  Accepted recall: 0.000000
+  Filtered MAE: 475.900149 px
+
+After Unity training with corrected label offset:
+  Candidate recall: 0.392973
+  Accepted recall: 0.144187
+  Filtered MAE: 59.11329 px
+```
+
+Interpretation:
+
+```text
+The Unity-trained classifier improves full-frame tracking a lot, but the remaining bottleneck is candidate detection.
+If OpenCV does not produce a candidate near the true beacon, the CNN cannot select it.
+Next work should tune Unity candidate detection and confirm/fix Unity label export timing.
+```
+
 If labels are missing, the same evaluator still runs inference and diagnostics, marks quantitative ground-truth metrics as `null`, and creates:
 
 ```text
@@ -732,8 +852,8 @@ Phase 8 tests:
 Result:
 
 ```text
-19 targeted Phase 8 tests passed
-52 total project tests passed
+25 targeted Phase 8/Unity tests passed
+58 total project tests passed
 ```
 
 ## Current Project Structure
@@ -742,6 +862,7 @@ Result:
 fsoc-ml-cv/
   configs/
     default.yaml
+    unity.yaml
   data/
     labels/
       labels.csv
@@ -751,6 +872,7 @@ fsoc-ml-cv/
     processed/
       unity/
         smooth_horizontal_01/
+      unity_base_2400_patches/
       train/
         correct/
         false/
@@ -779,16 +901,20 @@ fsoc-ml-cv/
     pipeline-test/
     unity-evaluation/
       smooth_horizontal_01/
+      unity_base_2400/
+      unity_base_2400_trained/
     tracking-test/
     training/
   review/
     progress_2026-09-07.md
     progress_2026-09-08.md
+    progress_2026-09-09.md
   src/
     generate_dataset.py
     preprocessing.py
     candidate_detector.py
     prepare_patches.py
+    prepare_unity_patches.py
     beacon_classifier.py
     train_classifier.py
     temporal_verifier.py
