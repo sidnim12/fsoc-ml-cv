@@ -1197,3 +1197,27 @@ Large motion steps above 120 px/frame: 110
 ```
 
 Because of this, the safer behavior is to keep accurate ACQUIRING measurements instead of forcing LOCKED state on discontinuous motion. Future Unity exports should make speed variation fast but physically continuous if the demo expects stable lock.
+
+### Unity Handoff And Review Reports
+
+Backend API implementation is owned by the backend developer, but the ML/CV repo now documents the exact contract they should connect to:
+
+```text
+docs/api_contract.md
+docs/unity_followup.md
+src/summarize_unity_results.py
+```
+
+Generate a compact final Unity metrics report with:
+
+```bash
+python src/summarize_unity_results.py --evaluation-root outputs/unity-evaluation/official_1600x900_v2_tuned_conf025 --output outputs/reports/official_1600x900_v2_tuned_report.md --title "Official Unity 1600x900 V2 Tuned Report"
+```
+
+Current report output:
+
+```text
+outputs/reports/official_1600x900_v2_tuned_report.md
+```
+
+The report highlights overall candidate recall, accepted detection recall, filtered pixel error, lock percentage, FPS, and sequence-level weak cases. Unity follow-up work should focus on smoother speed-variation labels, clearer reacquisition behavior, and final 6000-9000 frame export variations.
