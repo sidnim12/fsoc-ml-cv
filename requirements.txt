@@ -40,6 +40,4 @@ python-multipart>=0.0.9
 
 # Testing
 pytest>=8.0
-
-#backend server
-fastapi
+httpx>=0.27
