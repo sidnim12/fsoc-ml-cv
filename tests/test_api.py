@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -235,3 +235,17 @@ def test_default_config_path_uses_detector_positive_config(monkeypatch) -> None:
 
     monkeypatch.delenv("FSOC_CONFIG", raising=False)
     assert default_config_path().as_posix() == "configs/unity_detector_positive.yaml"
+
+
+def test_root_route_points_to_docs_and_health() -> None:
+    with make_client() as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["name"] == "FSOC ML/CV Unity API"
+    assert payload["status"] == "running"
+    assert payload["docs"] == "/docs"
+    assert payload["health"] == "/health"
+    assert payload["predict_frame"] == "/predict-frame"
+

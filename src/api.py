@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import time
@@ -231,6 +231,17 @@ def create_app(
         allow_headers=["*"],
     )
 
+    @app.get("/")
+    def root() -> Dict[str, Any]:
+        return {
+            "name": "FSOC ML/CV Unity API",
+            "status": "running",
+            "docs": "/docs",
+            "health": "/health",
+            "config": "/config",
+            "predict_frame": "/predict-frame",
+        }
+
     @app.get("/health")
     def health_check(request: Request) -> Dict[str, Any]:
         pipeline_obj: SingleFramePipeline = request.app.state.pipeline
@@ -298,3 +309,4 @@ def create_app(
 
 
 app = create_app()
+

@@ -1042,11 +1042,9 @@ fsoc-ml-cv/
     unity_dataset_adapter.py
     evaluate_unity_sequence.py
     pipeline.py
-    evaluate.py
     api.py
   tests/
     test_api.py
-    test_detector.py
     test_pipeline.py
     test_temporal_verifier.py
     test_tracker.py
@@ -1460,3 +1458,4 @@ python src/api_smoke_test.py --image data/raw/unity/official_1600x900/official_1
 ```
 
 Expected output contains both `/health` JSON and `/predict-frame` JSON. This is the fastest check before connecting Unity or the dashboard.
+
