@@ -1221,3 +1221,59 @@ outputs/reports/official_1600x900_v2_tuned_report.md
 ```
 
 The report highlights overall candidate recall, accepted detection recall, filtered pixel error, lock percentage, FPS, and sequence-level weak cases. Unity follow-up work should focus on smoother speed-variation labels, clearer reacquisition behavior, and final 6000-9000 frame export variations.
+
+### Official 1600x900 9k Dataset Result
+
+Final Unity dataset inspected under:
+
+```text
+data/raw/unity/official_1600x900/official_1600x900
+```
+
+Dataset validation:
+
+```text
+Sequences: 30
+Frames: 9000
+Resolution: 1600x900
+Frames per sequence: 300
+Continuity: all sequences continuous
+Smoothness: mostly smooth; sequence_020 has one large labelled step above 120 px
+```
+
+Patch preparation:
+
+```text
+Total patches: 9271
+Correct patches: 8132
+False patches: 1139
+Train split: 6509 correct, 911 false
+Validation split: 814 correct, 114 false
+Test split: 809 correct, 114 false
+```
+
+Patch-level CNN training output:
+
+```text
+Checkpoint: models/checkpoints/official_1600x900_final/best_classifier.pt
+Training output: outputs/training/official_1600x900_final
+Test accuracy: 1.0000
+Test precision: 1.0000
+Test recall: 1.0000
+Test F1-score: 1.0000
+ROC-AUC: 1.0000
+```
+
+Full-frame Unity evaluation output:
+
+```text
+Evaluation output: outputs/unity-evaluation/official_1600x900_final_trained
+Report: outputs/reports/official_1600x900_final_report.md
+Average candidate recall: 0.994643
+Average accepted detection recall: 0.078690
+Average filtered MAE: 2.277340 px
+Average locked-frame percentage: 39.022222
+Average effective processing FPS: 8.189958
+```
+
+Interpretation: OpenCV candidate generation remains strong and localization error is very low when accepted. The main remaining weakness is full-frame acceptance/classifier confidence, because many correct candidates are still rejected as `below_confidence_threshold` despite strong patch-level test results.

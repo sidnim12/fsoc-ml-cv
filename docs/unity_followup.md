@@ -75,3 +75,18 @@ Coordinates should use top-left image origin:
 x increases right
 y increases down
 ```
+
+## Official 9k Dataset Inspection Result
+
+The final dataset passed basic ML/CV inspection:
+
+```text
+Sequences: 30
+Frames: 9000
+Resolution: 1600x900
+Frame continuity: pass
+Label/image count: pass
+Smoothness: pass overall
+```
+
+Note: `sequence_020` contains one labelled motion step above 120 px. It is not a blocker, but it should be reviewed visually if final lock behavior looks strange in that sequence.
