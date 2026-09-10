@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -191,7 +191,14 @@ def test_missing_checkpoint_message_mentions_gitignore() -> None:
 def test_require_checkpoint_raises_when_weights_missing(monkeypatch) -> None:
     from src.api import create_runtime
 
-    monkeypatch.delenv("FSOC_CHECKPOINT", raising=False)
+    import src.api as api_module
+
+    monkeypatch.setenv("FSOC_CHECKPOINT", "models/checkpoints/definitely_missing_test_checkpoint.pt")
     monkeypatch.setenv("FSOC_REQUIRE_CHECKPOINT", "1")
+    monkeypatch.setattr(api_module, "FALLBACK_CHECKPOINTS", ())
     with pytest.raises(FileNotFoundError, match="gitignored"):
         create_runtime("configs/unity.yaml")
+
+
+
+
