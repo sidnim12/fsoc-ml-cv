@@ -1430,3 +1430,23 @@ Average effective processing FPS: 8.721445
 ```
 
 This is the current best ML/CV configuration for the 1600x900 Unity prototype. Use `configs/unity_detector_positive.yaml` with the detector-positive checkpoint for backend integration tests.
+
+### Backend API Readiness Update
+
+The backend API now defaults to the best detector-positive Unity configuration:
+
+```text
+configs/unity_detector_positive.yaml
+```
+
+Available routes:
+
+```text
+GET  /health
+GET  /config
+GET  /sessions
+POST /reset
+POST /predict-frame
+```
+
+Use `/config` for dashboard/API setup checks and `/sessions` to verify tracker state per Unity stream.

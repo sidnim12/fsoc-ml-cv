@@ -150,3 +150,39 @@ Filtered MAE: 2.950367 px
 Locked frames: 99.000000%
 FPS: 8.721445
 ```
+
+## Backend Readiness Additions
+
+The API now defaults to the current best 1600x900 ML/CV config:
+
+```text
+configs/unity_detector_positive.yaml
+```
+
+Additional endpoints for dashboard/debugging:
+
+```text
+GET /config
+GET /sessions
+```
+
+`GET /config` returns frame size, target ID, confidence threshold, checkpoint path, coordinate origin, response keys, and control-error range.
+
+`GET /sessions` returns active tracker session IDs. Unity can use one default stream or pass `session_id` for separate runs/cameras.
+
+Browser/dashboard CORS is enabled for localhost development ports by default:
+
+```text
+127.0.0.1:3000
+localhost:3000
+127.0.0.1:5173
+localhost:5173
+127.0.0.1:8000
+localhost:8000
+```
+
+Override with:
+
+```powershell
+$env:FSOC_CORS_ORIGINS="http://127.0.0.1:5173,http://localhost:5173"
+```

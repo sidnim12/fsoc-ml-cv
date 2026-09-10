@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import time
@@ -9,6 +9,7 @@ from typing import Any, Dict, Mapping, Optional
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 try:
@@ -21,9 +22,10 @@ except ImportError:  # pragma: no cover - allows direct script execution
     from tracker import TargetTracker, TrackingConfig, load_tracking_config
 
 
-DEFAULT_CONFIG_PATH = Path("configs/unity.yaml")
+DEFAULT_CONFIG_PATH = Path("configs/unity_detector_positive.yaml")
 DEFAULT_SESSION_ID = "default"
 FALLBACK_CHECKPOINTS = (
+    Path("models/checkpoints/official_1600x900_detector_positive/best_classifier.pt"),
     Path("models/checkpoints/best_classifier.pt"),
     Path("models/checkpoints/official_1600x900_v2/best_classifier.pt"),
     Path("models/checkpoints/unity_base_2400/best_classifier.pt"),
@@ -49,13 +51,28 @@ PREDICT_RESPONSE_KEYS = (
 )
 
 
+def cors_origins() -> list[str]:
+    """Return browser origins allowed to call the API dashboard."""
+    configured = os.environ.get("FSOC_CORS_ORIGINS")
+    if configured:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    ]
+
+
 def default_config_path() -> Path:
     """Return the YAML config used to load the pipeline and tracker once."""
     return Path(os.environ.get("FSOC_CONFIG", DEFAULT_CONFIG_PATH))
 
 
-def display_config_path(path: Path) -> str:
-    """Return a stable relative config path for /health."""
+def display_path(path: Path) -> str:
+    """Return a stable relative path for API metadata."""
     resolved = path.expanduser().resolve()
     try:
         return resolved.relative_to(Path.cwd().resolve()).as_posix()
@@ -171,9 +188,11 @@ def create_runtime(
 
     return {
         "pipeline": loaded_pipeline,
+        "pipeline_config": pipeline_config,
         "tracking_config": loaded_tracking,
         "trackers": {DEFAULT_SESSION_ID: TargetTracker(loaded_tracking)},
-        "config_path": display_config_path(path),
+        "config_path": display_path(path),
+        "checkpoint_path": display_path(Path(pipeline_config.inference.checkpoint_path)),
         "model_loaded": model_loaded,
     }
 
@@ -190,9 +209,11 @@ def create_app(
     async def lifespan(app: FastAPI):
         runtime = create_runtime(resolved_config, pipeline=pipeline, tracking_config=tracking_config)
         app.state.pipeline = runtime["pipeline"]
+        app.state.pipeline_config = runtime["pipeline_config"]
         app.state.tracking_config = runtime["tracking_config"]
         app.state.trackers = runtime["trackers"]
         app.state.config_path = runtime["config_path"]
+        app.state.checkpoint_path = runtime["checkpoint_path"]
         app.state.model_loaded = runtime["model_loaded"]
         yield
         app.state.trackers.clear()
@@ -201,6 +222,13 @@ def create_app(
         title="FSOC ML/CV Unity API",
         description="Single-frame pipeline plus stateful tracker for Unity camera frames.",
         lifespan=lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins(),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
     )
 
     @app.get("/health")
@@ -214,7 +242,30 @@ def create_app(
             "tracker_ready": bool(trackers),
             "device": str(pipeline_obj.device),
             "config": request.app.state.config_path,
+            "checkpoint": request.app.state.checkpoint_path,
+            "active_sessions": len(trackers),
         }
+
+    @app.get("/config")
+    def config_info(request: Request) -> Dict[str, Any]:
+        pipeline_config = request.app.state.pipeline_config
+        tracking_config = request.app.state.tracking_config
+        return {
+            "config": request.app.state.config_path,
+            "checkpoint": request.app.state.checkpoint_path,
+            "frame_width": int(tracking_config.frame_width),
+            "frame_height": int(tracking_config.frame_height),
+            "target_id": str(pipeline_config.inference.target_id),
+            "confidence_threshold": float(pipeline_config.inference.confidence_threshold),
+            "response_keys": list(PREDICT_RESPONSE_KEYS),
+            "coordinate_origin": "top-left",
+            "control_error_range": [-1.0, 1.0],
+        }
+
+    @app.get("/sessions")
+    def sessions(request: Request) -> Dict[str, Any]:
+        trackers: Dict[str, TargetTracker] = request.app.state.trackers
+        return {"active_sessions": sorted(trackers.keys()), "count": len(trackers)}
 
     @app.post("/reset")
     def reset_tracker(request: Request, session_id: Optional[str] = Form(None)) -> Dict[str, str]:

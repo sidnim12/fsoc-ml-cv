@@ -202,3 +202,36 @@ def test_require_checkpoint_raises_when_weights_missing(monkeypatch) -> None:
 
 
 
+
+def test_config_endpoint_reports_unity_metadata() -> None:
+    with make_client() as client:
+        response = client.get("/config")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["config"] == "configs/unity.yaml"
+    assert payload["frame_width"] == 120
+    assert payload["frame_height"] == 100
+    assert payload["target_id"] == "Terminal_B"
+    assert payload["coordinate_origin"] == "top-left"
+    assert payload["control_error_range"] == [-1.0, 1.0]
+    assert set(PREDICT_RESPONSE_KEYS) <= set(payload["response_keys"])
+
+
+def test_sessions_endpoint_lists_default_and_created_sessions() -> None:
+    frame = make_frame([(70, 40, 5, 255)])
+    with make_client() as client:
+        before = client.get("/sessions").json()
+        post_frame(client, frame, {"session_id": "unity_demo"})
+        after = client.get("/sessions").json()
+
+    assert before["active_sessions"] == ["default"]
+    assert after["count"] == 2
+    assert after["active_sessions"] == ["default", "unity_demo"]
+
+
+def test_default_config_path_uses_detector_positive_config(monkeypatch) -> None:
+    from src.api import default_config_path
+
+    monkeypatch.delenv("FSOC_CONFIG", raising=False)
+    assert default_config_path().as_posix() == "configs/unity_detector_positive.yaml"
