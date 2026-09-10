@@ -1,4 +1,4 @@
-﻿# API Contract For Unity Integration
+# API Contract For Unity Integration
 
 This document is the stable contract between Unity, the FastAPI backend, and the ML/CV pipeline.
 
