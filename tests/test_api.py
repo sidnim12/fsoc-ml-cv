@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import cv2
 import numpy as np
 import pytest
@@ -176,3 +178,20 @@ def test_invalid_image_returns_400() -> None:
 
     assert response.status_code == 400
     assert "decode" in response.json()["detail"]
+
+
+def test_missing_checkpoint_message_mentions_gitignore() -> None:
+    from src.api import missing_checkpoint_message
+
+    message = missing_checkpoint_message(Path("models/checkpoints/best_classifier.pt"))
+    assert "gitignored" in message
+    assert "FSOC_CHECKPOINT" in message
+
+
+def test_require_checkpoint_raises_when_weights_missing(monkeypatch) -> None:
+    from src.api import create_runtime
+
+    monkeypatch.delenv("FSOC_CHECKPOINT", raising=False)
+    monkeypatch.setenv("FSOC_REQUIRE_CHECKPOINT", "1")
+    with pytest.raises(FileNotFoundError, match="gitignored"):
+        create_runtime("configs/unity.yaml")

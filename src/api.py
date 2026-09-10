@@ -12,15 +12,22 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 try:
+    from .beacon_classifier import BeaconClassifier
     from .pipeline import SingleFramePipeline, load_config
     from .tracker import TargetTracker, TrackingConfig, load_tracking_config
 except ImportError:  # pragma: no cover - allows direct script execution
+    from beacon_classifier import BeaconClassifier
     from pipeline import SingleFramePipeline, load_config
     from tracker import TargetTracker, TrackingConfig, load_tracking_config
 
 
 DEFAULT_CONFIG_PATH = Path("configs/unity.yaml")
 DEFAULT_SESSION_ID = "default"
+FALLBACK_CHECKPOINTS = (
+    Path("models/checkpoints/best_classifier.pt"),
+    Path("models/checkpoints/official_1600x900_v2/best_classifier.pt"),
+    Path("models/checkpoints/unity_base_2400/best_classifier.pt"),
+)
 
 PREDICT_RESPONSE_KEYS = (
     "target_found",
@@ -106,6 +113,33 @@ def predict_payload(tracking_result: Mapping[str, Any], processing_time_ms: floa
     }
 
 
+def require_checkpoint() -> bool:
+    """Fail startup when no .pt file exists, instead of using an untrained model."""
+    return os.environ.get("FSOC_REQUIRE_CHECKPOINT", "").strip().lower() in {"1", "true", "yes"}
+
+
+def missing_checkpoint_message(expected: Path) -> str:
+    """Explain that Git does not store classifier weights."""
+    searched = ", ".join(str(path) for path in (expected, *FALLBACK_CHECKPOINTS))
+    return (
+        f"checkpoint does not exist: {expected}. "
+        "Classifier weights are gitignored, so they are not in a fresh clone. "
+        f"Looked for: {searched}. "
+        "Copy a trained best_classifier.pt into models/checkpoints/, "
+        "or set FSOC_CHECKPOINT=/path/to/best_classifier.pt"
+    )
+
+
+def find_checkpoint(preferred: Path) -> Optional[Path]:
+    """Return the first existing checkpoint, preferring the configured path."""
+    if preferred.exists():
+        return preferred
+    for candidate in FALLBACK_CHECKPOINTS:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def create_runtime(
     config_path: str | Path,
     pipeline: Optional[SingleFramePipeline] = None,
@@ -113,13 +147,34 @@ def create_runtime(
 ) -> Dict[str, Any]:
     """Load the classifier once and create the default tracker."""
     path = Path(config_path)
-    loaded_pipeline = pipeline if pipeline is not None else SingleFramePipeline(load_config(path))
+    env_checkpoint = os.environ.get("FSOC_CHECKPOINT")
+    pipeline_config = load_config(path, checkpoint_override=env_checkpoint)
     loaded_tracking = tracking_config if tracking_config is not None else load_tracking_config(path)
+    model_loaded = True
+
+    if pipeline is not None:
+        loaded_pipeline = pipeline
+    else:
+        preferred = Path(pipeline_config.inference.checkpoint_path)
+        found = find_checkpoint(preferred)
+        if found is not None:
+            if found != preferred:
+                pipeline_config = load_config(path, checkpoint_override=found)
+            loaded_pipeline = SingleFramePipeline(pipeline_config)
+        elif require_checkpoint():
+            raise FileNotFoundError(missing_checkpoint_message(preferred))
+        else:
+            print(f"WARNING: {missing_checkpoint_message(preferred)}")
+            print("WARNING: API is starting with an untrained classifier. Predictions will not be meaningful.")
+            loaded_pipeline = SingleFramePipeline(pipeline_config, model=BeaconClassifier())
+            model_loaded = False
+
     return {
         "pipeline": loaded_pipeline,
         "tracking_config": loaded_tracking,
         "trackers": {DEFAULT_SESSION_ID: TargetTracker(loaded_tracking)},
         "config_path": display_config_path(path),
+        "model_loaded": model_loaded,
     }
 
 
@@ -138,6 +193,7 @@ def create_app(
         app.state.tracking_config = runtime["tracking_config"]
         app.state.trackers = runtime["trackers"]
         app.state.config_path = runtime["config_path"]
+        app.state.model_loaded = runtime["model_loaded"]
         yield
         app.state.trackers.clear()
 
@@ -151,10 +207,10 @@ def create_app(
     def health_check(request: Request) -> Dict[str, Any]:
         pipeline_obj: SingleFramePipeline = request.app.state.pipeline
         trackers: Dict[str, TargetTracker] = request.app.state.trackers
-        model_loaded = getattr(pipeline_obj, "model", None) is not None
+        model_loaded = bool(request.app.state.model_loaded)
         return {
-            "status": "healthy" if model_loaded and bool(trackers) else "unhealthy",
-            "model_loaded": bool(model_loaded),
+            "status": "healthy" if bool(trackers) else "unhealthy",
+            "model_loaded": model_loaded,
             "tracker_ready": bool(trackers),
             "device": str(pipeline_obj.device),
             "config": request.app.state.config_path,

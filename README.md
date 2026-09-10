@@ -931,6 +931,8 @@ http://127.0.0.1:8000/predict-frame
 
 Default config is `configs/unity.yaml`. Override with `FSOC_CONFIG` if the final checkpoint path changes after 6k-9k training.
 
+Classifier weights are gitignored. If `models/checkpoints/best_classifier.pt` is missing, the API still starts so Unity can call the endpoints, but `/health` reports `"model_loaded": false` and predictions are not meaningful. Copy a trained checkpoint into `models/checkpoints/` or set `FSOC_CHECKPOINT=/path/to/best_classifier.pt`. Set `FSOC_REQUIRE_CHECKPOINT=1` to fail startup instead.
+
 `GET /health` response:
 
 ```json
