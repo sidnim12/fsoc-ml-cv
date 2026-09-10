@@ -126,3 +126,27 @@ Report: outputs/reports/official_1600x900_final_report.md
 ```
 
 Current recommendation for backend integration: use the final checkpoint path above, but expect that confidence threshold tuning may still change before final demo.
+
+## Current Best ML/CV Config
+
+Use this config for backend integration testing:
+
+```text
+configs/unity_detector_positive.yaml
+```
+
+It points to:
+
+```text
+models/checkpoints/official_1600x900_detector_positive/best_classifier.pt
+```
+
+Expected offline full-frame metrics on the official 9000-frame Unity dataset:
+
+```text
+Candidate recall: 0.994643
+Accepted detection recall: 0.994643
+Filtered MAE: 2.950367 px
+Locked frames: 99.000000%
+FPS: 8.721445
+```
