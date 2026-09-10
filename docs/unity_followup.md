@@ -90,3 +90,18 @@ Smoothness: pass overall
 ```
 
 Note: `sequence_020` contains one labelled motion step above 120 px. It is not a blocker, but it should be reviewed visually if final lock behavior looks strange in that sequence.
+
+## ML/CV Fix Completed
+
+The model now trains with detector-centered matched positive patches, so Unity runtime candidate crops better match CNN training data.
+
+Current best output:
+
+```text
+Evaluation: outputs/unity-evaluation/official_1600x900_detector_positive_conf005
+Accepted detection recall: 0.994643
+Locked frames: 99.000000%
+Filtered MAE: 2.950367 px
+```
+
+Unity does not need to regenerate data for this fix. Continue using 1600x900 top-left coordinates and continuous frame numbering.

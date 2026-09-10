@@ -1,0 +1,58 @@
+﻿project:
+  name: fsoc-ml-cv
+  problem_statement_id: PS 26169
+  target_id: Terminal_B
+image:
+  width: 1600
+  height: 900
+  patch_size: 32
+preprocessing:
+  threshold_method: fixed
+  threshold: 180
+  blur_kernel: 5
+  morph_kernel: 3
+  opening_iterations: 1
+  closing_iterations: 1
+  normalize_contrast: false
+detector:
+  threshold_method: fixed
+  threshold: 180
+  min_area: 3
+  max_area: 1000
+  min_radius: 1
+  max_radius: 25
+  blur_kernel: 5
+  morph_kernel: 3
+  opening_iterations: 1
+  closing_iterations: 1
+  min_circularity: 0.15
+  match_tolerance: 12
+classifier:
+  confidence_threshold: 0.05
+  model_path: models/checkpoints/official_1600x900_detector_positive/best_classifier.pt
+  onnx_path: models/exported/beacon_classifier.onnx
+pipeline:
+  target_id: Terminal_B
+  crop_size: 40
+  patch_size: 32
+  device: auto
+  fusion:
+    cnn_weight: 0.8
+    cv_weight: 0.2
+temporal:
+  enabled: true
+  mode: persistence
+  history_window: 5
+  min_confirmations: 2
+  association_radius_px: 25
+  blink_enabled: false
+  expected_period_frames: 6
+  tolerance_frames: 2
+tracker:
+  dt: 1.0
+  process_noise: 0.03
+  measurement_noise: 4.0
+  association_gate_px: 120
+  association_confidence_weight: 0.4
+  association_position_weight: 0.6
+  max_missed_frames: 8

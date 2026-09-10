@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -225,10 +225,36 @@ def build_unity_patch_table(
                 candidates = []
 
             negative_count = 0
+            matched_positive_count = 0
             for candidate in candidates:
                 candidate_data = candidate.to_dict()
                 distance = math.inf if target_x < 0 or target_y < 0 else candidate_distance(candidate_data, target_x, target_y)
                 if distance <= config.match_tolerance:
+                    if int(getattr(row, "target_present")) == 1:
+                        matched_positive_count += 1
+                        records.append(
+                            make_patch_record(
+                                source_filename=source_filename,
+                                source_path=image_path,
+                                label_frame_id=label_frame_id,
+                                sequence_id=sequence_id,
+                                scenario=scenario,
+                                split=split,
+                                candidate_id=int(candidate_data["candidate_id"]),
+                                label="correct",
+                                candidate_x=float(candidate_data["x"]),
+                                candidate_y=float(candidate_data["y"]),
+                                target_x=target_x,
+                                target_y=target_y,
+                                distance_to_ground_truth=distance,
+                                area=float(candidate_data["area"]),
+                                radius=float(candidate_data["radius"]),
+                                mean_intensity=float(candidate_data["mean_intensity"]),
+                                max_intensity=int(candidate_data["max_intensity"]),
+                                circularity=float(candidate_data["circularity"]),
+                                baseline_score=float(candidate_data["baseline_score"]),
+                            )
+                        )
                     continue
                 negative_count += 1
                 records.append(
@@ -406,3 +432,4 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
+

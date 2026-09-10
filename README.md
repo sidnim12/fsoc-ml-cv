@@ -1277,3 +1277,32 @@ Average effective processing FPS: 8.189958
 ```
 
 Interpretation: OpenCV candidate generation remains strong and localization error is very low when accepted. The main remaining weakness is full-frame acceptance/classifier confidence, because many correct candidates are still rejected as `below_confidence_threshold` despite strong patch-level test results.
+
+### Detector-Centered Positive Patch Improvement
+
+The low accepted recall was traced to a training/inference mismatch: the CNN was trained mostly on label-centered positive crops, while runtime inference classifies detector-centered candidate crops. `src/prepare_unity_patches.py` now adds matched detector candidates as additional `correct` training patches.
+
+Updated patch/training/evaluation outputs:
+
+```text
+Patch output: data/processed/official_1600x900_detector_patches
+Total patches: 17403
+Correct patches: 16264
+False patches: 1139
+Training output: outputs/training/official_1600x900_detector_positive
+Checkpoint: models/checkpoints/official_1600x900_detector_positive/best_classifier.pt
+Evaluation output: outputs/unity-evaluation/official_1600x900_detector_positive_conf005
+Report: outputs/reports/official_1600x900_detector_positive_report.md
+```
+
+Full-frame result after the fix:
+
+```text
+Average candidate recall: 0.994643
+Average accepted detection recall: 0.994643
+Average filtered MAE: 2.950367 px
+Average locked-frame percentage: 99.000000
+Average effective processing FPS: 8.721445
+```
+
+This is the current best ML/CV configuration for the 1600x900 Unity prototype. Use `configs/unity_detector_positive.yaml` with the detector-positive checkpoint for backend integration tests.
