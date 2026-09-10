@@ -856,6 +856,126 @@ Result:
 58 total project tests passed
 ```
 
+### Phase 9: FastAPI Unity Backend
+
+Implemented in:
+
+```text
+src/api.py
+tests/test_api.py
+docs/api_contract.md
+```
+
+Live Unity camera frames are posted to FastAPI. The backend loads the classifier once at startup, keeps tracker state between frames, and returns the Unity/PID JSON contract. PID control stays outside Python.
+
+Architecture:
+
+```text
+Unity Camera Frame
+        ↓
+POST /predict-frame
+        ↓
+FastAPI backend in src/api.py
+        ↓
+OpenCV decodes image
+        ↓
+SingleFramePipeline from src/pipeline.py
+        ↓
+TargetTracker from src/tracker.py
+        ↓
+JSON response to Unity/PID
+```
+
+Endpoints:
+
+```text
+GET  /health
+POST /reset
+POST /predict-frame
+```
+
+`POST /predict-frame` accepts `multipart/form-data` with:
+
+```text
+file: PNG/JPG image frame
+frame_index: optional integer
+timestamp_s: optional float
+session_id: optional string
+```
+
+If `session_id` is omitted, one default global tracker is used. Different Unity streams can pass distinct `session_id` values to keep independent tracker state. Call `POST /reset` before a new Unity sequence.
+
+Run the API:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+macOS / Linux:
+
+```text
+python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+Health check:
+
+```powershell
+curl http://127.0.0.1:8000/health
+```
+
+Unity should call:
+
+```text
+http://127.0.0.1:8000/predict-frame
+```
+
+Default config is `configs/unity.yaml`. Override with `FSOC_CONFIG` if the final checkpoint path changes after 6k-9k training.
+
+Classifier weights are gitignored. If `models/checkpoints/best_classifier.pt` is missing, the API still starts so Unity can call the endpoints, but `/health` reports `"model_loaded": false` and predictions are not meaningful. Copy a trained checkpoint into `models/checkpoints/` or set `FSOC_CHECKPOINT=/path/to/best_classifier.pt`. Set `FSOC_REQUIRE_CHECKPOINT=1` to fail startup instead.
+
+`GET /health` response:
+
+```json
+{
+  "status": "healthy",
+  "model_loaded": true,
+  "tracker_ready": true,
+  "device": "cpu",
+  "config": "configs/unity.yaml"
+}
+```
+
+`POST /predict-frame` response:
+
+```json
+{
+  "target_found": true,
+  "lock_state": "LOCKED",
+  "filtered_x_px": 483,
+  "filtered_y_px": 194,
+  "predicted_x_px": 491,
+  "predicted_y_px": 190,
+  "control_error_x": 0.51,
+  "control_error_y": 0.19,
+  "confidence": 0.93,
+  "frame_index": 42,
+  "measurement_available": true,
+  "candidate_count": 3,
+  "temporally_verified": true,
+  "using_prediction_only": false,
+  "missed_frames": 0,
+  "processing_time_ms": 18.4
+}
+```
+
+API tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_api.py -v
+```
+
+The tests inject a mock classifier and do not reload the trained checkpoint on every request.
+
 ## Current Project Structure
 
 ```text
@@ -925,6 +1045,7 @@ fsoc-ml-cv/
     evaluate.py
     api.py
   tests/
+    test_api.py
     test_detector.py
     test_pipeline.py
     test_temporal_verifier.py
@@ -1038,6 +1159,15 @@ data/processed/unity/smooth_horizontal_01/manifest.csv
 outputs/unity-evaluation/smooth_horizontal_01/
 ```
 
+Unity API:
+
+```text
+src/api.py
+http://127.0.0.1:8000/health
+http://127.0.0.1:8000/reset
+http://127.0.0.1:8000/predict-frame
+```
+
 ## Future Plan
 
 ### Next Phase: Unity Domain Adaptation
@@ -1056,13 +1186,7 @@ Expected additions:
 
 ### API / Unity Integration
 
-Expose the pipeline to Unity through a lightweight API or file/socket bridge.
-
-Planned file:
-
-```text
-src/api.py
-```
+The FastAPI backend in `src/api.py` is available now. Unity posts camera frames to `POST /predict-frame` and receives tracker output. The endpoint shape is stable; the checkpoint and `configs/unity.yaml` values may still change after final 6k-9k training.
 
 ### PID / Gimbal Integration
 
@@ -1109,9 +1233,9 @@ The CNN was trained on Python-generated synthetic images and has now been tested
 
 The current CNN can confuse true and false beacon-like glows because they are visually similar in 32 x 32 crops. This is expected at this stage and should improve with temporal verification, more realistic data, and classifier tuning.
 
-The Phase 7 tracker needs ordered frames from the same camera sequence. Phase 8 provides an offline sequence evaluator, but live Unity communication is still not implemented.
+The Phase 7 tracker needs ordered frames from the same camera sequence. Phase 8 provides an offline sequence evaluator. Phase 9 exposes that loop over HTTP for Unity; PID, gimbal rotation, and a closed control loop are still outside this repository.
 
-The project still does not communicate with Unity, issue PID commands, rotate a gimbal, or close the control loop. Current Unity metrics are baseline offline metrics from one sequence, not final system performance.
+Current Unity metrics are labelled-sequence evaluations, not final closed-loop system performance. The serving checkpoint and `configs/unity.yaml` values may still change after final 6k-9k training.
 
 ### Official Unity 1600x900 V2 Evaluation
 
