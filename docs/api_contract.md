@@ -186,3 +186,13 @@ Override with:
 ```powershell
 $env:FSOC_CORS_ORIGINS="http://127.0.0.1:5173,http://localhost:5173"
 ```
+
+## Smoke Test Before Unity Connection
+
+Start the backend, then run:
+
+```powershell
+python src/api_smoke_test.py --image data/raw/unity/official_1600x900/official_1600x900/sequence_001/frame_000001.png --frame-index 1
+```
+
+This verifies `/health` and `/predict-frame` using one real Unity frame.

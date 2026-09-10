@@ -1450,3 +1450,13 @@ POST /predict-frame
 ```
 
 Use `/config` for dashboard/API setup checks and `/sessions` to verify tracker state per Unity stream.
+
+### API Smoke Test Client
+
+With the server running, test one Unity frame directly:
+
+```powershell
+python src/api_smoke_test.py --image data/raw/unity/official_1600x900/official_1600x900/sequence_001/frame_000001.png --frame-index 1
+```
+
+Expected output contains both `/health` JSON and `/predict-frame` JSON. This is the fastest check before connecting Unity or the dashboard.
