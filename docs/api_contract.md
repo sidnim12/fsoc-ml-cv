@@ -110,3 +110,19 @@ models/checkpoints/official_1600x900_v2/best_classifier.pt
 ```
 
 The checkpoint is ignored by Git and must be trained locally or shared separately.
+
+## Official 1600x900 9k Update
+
+The final 9000-frame Unity dataset has been inspected and trained on.
+
+```text
+Dataset root: data/raw/unity/official_1600x900/official_1600x900
+Sequences: 30
+Frames: 9000
+Resolution: 1600x900
+Checkpoint: models/checkpoints/official_1600x900_final/best_classifier.pt
+Evaluation: outputs/unity-evaluation/official_1600x900_final_trained
+Report: outputs/reports/official_1600x900_final_report.md
+```
+
+Current recommendation for backend integration: use the final checkpoint path above, but expect that confidence threshold tuning may still change before final demo.
