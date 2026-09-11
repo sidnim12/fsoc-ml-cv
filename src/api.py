@@ -34,6 +34,8 @@ FALLBACK_CHECKPOINTS = (
 PREDICT_RESPONSE_KEYS = (
     "target_found",
     "lock_state",
+    "measured_x_px",
+    "measured_y_px",
     "filtered_x_px",
     "filtered_y_px",
     "predicted_x_px",
@@ -113,6 +115,8 @@ def predict_payload(tracking_result: Mapping[str, Any], processing_time_ms: floa
     return {
         "target_found": bool(tracking_result["target_found"]),
         "lock_state": str(tracking_result["lock_state"]),
+        "measured_x_px": tracking_result.get("measured_x_px"),
+        "measured_y_px": tracking_result.get("measured_y_px"),
         "filtered_x_px": tracking_result.get("filtered_x_px"),
         "filtered_y_px": tracking_result.get("filtered_y_px"),
         "predicted_x_px": tracking_result.get("predicted_x_px"),
@@ -309,4 +313,6 @@ def create_app(
 
 
 app = create_app()
+
+
 

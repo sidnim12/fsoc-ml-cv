@@ -130,6 +130,8 @@ def test_predict_frame_returns_unity_contract() -> None:
     assert payload["frame_index"] == 42
     assert payload["candidate_count"] >= 1
     assert payload["measurement_available"] is True
+    assert payload["measured_x_px"] is not None
+    assert payload["measured_y_px"] is not None
     assert payload["using_prediction_only"] is False
     assert payload["confidence"] == pytest.approx(0.92, abs=1e-3)
     assert payload["processing_time_ms"] >= 0.0
@@ -248,4 +250,6 @@ def test_root_route_points_to_docs_and_health() -> None:
     assert payload["docs"] == "/docs"
     assert payload["health"] == "/health"
     assert payload["predict_frame"] == "/predict-frame"
+
+
 

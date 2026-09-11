@@ -64,6 +64,8 @@ Backend should decode the image as BGR OpenCV data, run the existing ML/CV pipel
 {
   "target_found": true,
   "lock_state": "LOCKED",
+  "measured_x_px": 484,
+  "measured_y_px": 193,
   "filtered_x_px": 483,
   "filtered_y_px": 194,
   "predicted_x_px": 491,
@@ -196,3 +198,5 @@ python src/api_smoke_test.py --image data/raw/unity/official_1600x900/official_1
 ```
 
 This verifies `/health` and `/predict-frame` using one real Unity frame.
+
+
